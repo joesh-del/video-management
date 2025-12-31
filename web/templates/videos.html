@@ -6,34 +6,136 @@
 <h1>Videos</h1>
 
 {% if videos %}
-<table>
-    <thead>
-        <tr>
-            <th>Title</th>
-            <th>Duration</th>
-            <th>Transcript</th>
-            <th>Uploaded</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for video in videos %}
-        <tr>
-            <td>
-                <strong>{{ video.filename }}</strong>
-            </td>
-            <td>{{ video.duration|duration }}</td>
-            <td>
-                {% if video.has_transcript %}
-                <span class="badge badge-success">Completed</span>
-                {% else %}
-                <span class="badge badge-pending">Pending</span>
-                {% endif %}
-            </td>
-            <td>{{ video.created_at|timestamp }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+<div class="video-grid">
+    {% for video in videos %}
+    <div class="video-card">
+        <div class="video-header">
+            <h3>{{ video.filename.replace('.mp4', '') }}</h3>
+            {% if video.has_transcript %}
+            <span class="badge badge-success">Transcribed</span>
+            {% else %}
+            <span class="badge badge-pending">Pending</span>
+            {% endif %}
+        </div>
+
+        {% if video.speaker %}
+        <div class="video-meta">
+            <div class="meta-row">
+                <span class="meta-label">Speaker</span>
+                <span class="meta-value">{{ video.speaker }}</span>
+            </div>
+            {% if video.event_name %}
+            <div class="meta-row">
+                <span class="meta-label">Event</span>
+                <span class="meta-value">{{ video.event_name }}</span>
+            </div>
+            {% endif %}
+            {% if video.event_date %}
+            <div class="meta-row">
+                <span class="meta-label">Date</span>
+                <span class="meta-value">{{ video.event_date.strftime('%B %d, %Y') if video.event_date else '--' }}</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if video.description %}
+        <p class="video-description">{{ video.description }}</p>
+        {% endif %}
+
+        <div class="video-footer">
+            <span class="duration">{{ video.duration|duration }}</span>
+            <span class="uploaded">Uploaded {{ video.created_at|timestamp }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<style>
+.video-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+.video-card {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 12px;
+    padding: 1.5rem;
+    transition: border-color 0.2s;
+}
+
+.video-card:hover {
+    border-color: #4a9eff;
+}
+
+.video-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.video-header h3 {
+    font-size: 1.1rem;
+    color: #fff;
+    margin: 0;
+    flex: 1;
+    margin-right: 1rem;
+}
+
+.video-meta {
+    background: #111;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.meta-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #222;
+}
+
+.meta-row:last-child {
+    border-bottom: none;
+}
+
+.meta-label {
+    color: #888;
+    font-size: 0.85rem;
+}
+
+.meta-value {
+    color: #fff;
+    font-size: 0.9rem;
+    text-align: right;
+}
+
+.video-description {
+    color: #aaa;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+}
+
+.video-footer {
+    display: flex;
+    justify-content: space-between;
+    color: #666;
+    font-size: 0.85rem;
+    padding-top: 1rem;
+    border-top: 1px solid #333;
+}
+
+.duration {
+    color: #4a9eff;
+    font-weight: 500;
+}
+</style>
+
 {% else %}
 <div class="empty-state">
     <h2>No videos yet</h2>

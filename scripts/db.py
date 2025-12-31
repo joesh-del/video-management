@@ -8,6 +8,7 @@ from typing import List, Optional
 from sqlalchemy import (
     BigInteger,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -44,6 +45,12 @@ class Video(Base):
     extra_data = Column("metadata", JSONB, default={})
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Metadata fields
+    speaker = Column(String(255))
+    event_name = Column(String(255))
+    event_date = Column(Date)
+    description = Column(Text)
 
     # Relationships
     transcripts = relationship("Transcript", back_populates="video", cascade="all, delete-orphan")

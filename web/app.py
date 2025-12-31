@@ -73,6 +73,10 @@ def videos():
                 'created_at': v.created_at,
                 'has_transcript': transcript is not None,
                 's3_key': v.s3_key,
+                'speaker': getattr(v, 'speaker', None),
+                'event_name': getattr(v, 'event_name', None),
+                'event_date': getattr(v, 'event_date', None),
+                'description': getattr(v, 'description', None),
             })
 
     return render_template('videos.html', videos=video_list)
