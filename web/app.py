@@ -482,57 +482,71 @@ def generate_script_with_ai(user_message: str, transcript_context: list, convers
         context_text += f"Video: {t['video_title']} | {t['start']:.1f}s-{t['end']:.1f}s | ID:{t['video_id']}\n"
         context_text += f'"{t["text"]}"\n\n'
 
-    system_prompt = f"""You are a master video editor creating short-form content. Your job: find the BEST clips that tell a cohesive story.
+    system_prompt = f"""You are a master video editor creating compelling short-form content. Your job: craft a NARRATIVE that flows naturally, using real clips AND suggested narration to bridge gaps.
 
 {summary}
 
-CRITICAL RULES FOR CLIP SELECTION:
-1. COMPLETE THOUGHTS ONLY - Each clip must be a complete sentence or thought that makes sense on its own. Never use clips that start mid-sentence or end abruptly.
+THE PROBLEM WITH RAW CLIPS:
+Raw transcript clips often don't flow together naturally. They start mid-sentence, lack context, or jump between unrelated ideas. Your job is to:
+1. Select the BEST, most powerful clips
+2. Add NARRATION suggestions to bridge them into a cohesive story
 
-2. QUALITY OVER QUANTITY - It's better to have 3 perfect clips than 6 mediocre ones. Only use clips that are genuinely powerful.
-
-3. NATURAL FLOW - When read aloud, the script should sound like one coherent speech. Test: could someone recite this smoothly?
-
-4. EXACT DATA - Use ONLY the exact text, video_id, start_time, and end_time from the data below. Do not paraphrase or approximate.
-
-SCRIPT STRUCTURE:
-- OPEN with something attention-grabbing (a bold claim, question, or universal truth)
-- BUILD with supporting ideas (each clip should add to the message)
-- CLOSE with the most memorable, quotable line
-
-BAD EXAMPLE (don't do this):
-"Leadership been impacted by two things?" - This is mid-sentence, sounds awkward
-
-GOOD EXAMPLE:
-"True leadership means having the courage to make difficult decisions." - Complete thought, powerful statement
-
-OUTPUT FORMAT:
-First, the readable script:
+OUTPUT FORMAT - USE THIS EXACT STRUCTURE:
 
 ---
 **[COMPELLING TITLE]**
 
-"[Complete, powerful opening statement]"
+[NARRATE: Opening hook that sets up the theme - 1-2 sentences]
 
-"[Supporting idea that builds on the theme]"
+[CLIP 1: "Exact quote from the transcript data"]
 
-"[Strong closing that lands the message]"
+[NARRATE: Transition that connects clip 1 to clip 2]
+
+[CLIP 2: "Exact quote from the transcript data"]
+
+[NARRATE: Build toward the conclusion]
+
+[CLIP 3: "Powerful closing quote from data"]
+
+[NARRATE: Optional closing thought]
 ---
 
-Why this works: [1 sentence]
+RULES:
+1. [CLIP X] = EXACT text from transcript data below. Never paraphrase.
+2. [NARRATE] = Your suggested voiceover/narration to bridge clips. Keep it concise (1-2 sentences max).
+3. Pick clips that are COMPLETE THOUGHTS - no mid-sentence fragments
+4. The narration should make the clips feel like ONE cohesive piece
+5. Aim for 3-5 strong clips with narration bridges
 
-Then JSON with exact data:
+EXAMPLE OF GOOD OUTPUT:
+---
+**[The Future We Build]**
+
+[NARRATE: What does it take to shape tomorrow? The answer lies in how we lead today.]
+
+[CLIP 1: "True leadership means having the courage to make difficult decisions."]
+
+[NARRATE: But courage alone isn't enough. It requires vision.]
+
+[CLIP 2: "We must ask ourselves: what do we aspire to be as a nation, as a people?"]
+
+[NARRATE: And ultimately, it demands action.]
+
+[CLIP 3: "The future belongs to those who believe in the beauty of their dreams."]
+---
+
+Then provide JSON with the clips only (not narration):
 ```json
 {{
   "title": "...",
   "total_duration": 60,
   "clips": [
-    {{"video_id": "exact-uuid", "video_title": "...", "start_time": 10.0, "end_time": 22.0, "text": "exact text from data"}}
+    {{"video_id": "exact-uuid", "video_title": "...", "start_time": 10.0, "end_time": 22.0, "text": "exact text"}}
   ]
 }}
 ```
 
-AVAILABLE CLIPS:
+AVAILABLE TRANSCRIPT CLIPS:
 """ + context_text
 
     # Build messages
