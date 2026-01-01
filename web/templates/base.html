@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Video Manager{% endblock %}</title>
+    <title>{% block title %}ClipFinder{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -12,44 +15,78 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #0a0a0a;
-            color: #e0e0e0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
             min-height: 100vh;
+            line-height: 1.5;
         }
 
         nav {
-            background: #1a1a1a;
-            padding: 1rem 2rem;
-            border-bottom: 1px solid #333;
+            background: #fff;
+            padding: 0.75rem 2rem;
+            border-bottom: 1px solid #e2e8f0;
             display: flex;
             align-items: center;
             gap: 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
 
         nav .logo {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #fff;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #6366f1;
             text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        nav .logo::before {
+            content: '';
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border-radius: 6px;
         }
 
         nav .links {
             display: flex;
-            gap: 1.5rem;
+            gap: 0.25rem;
         }
 
         nav a {
-            color: #888;
+            color: #64748b;
             text-decoration: none;
             padding: 0.5rem 1rem;
-            border-radius: 6px;
-            transition: all 0.2s;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.15s ease;
         }
 
-        nav a:hover, nav a.active {
-            color: #fff;
-            background: #333;
+        nav a:hover {
+            color: #1e293b;
+            background: #f1f5f9;
+        }
+
+        nav a.active {
+            color: #6366f1;
+            background: #eef2ff;
+        }
+
+        nav a.primary-nav {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: white;
+            font-weight: 600;
+        }
+
+        nav a.primary-nav:hover {
+            opacity: 0.9;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
         }
 
         main {
@@ -59,39 +96,44 @@
         }
 
         h1 {
-            font-size: 2rem;
+            font-size: 1.75rem;
+            font-weight: 700;
             margin-bottom: 1.5rem;
-            color: #fff;
+            color: #0f172a;
         }
 
         h2 {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
+            font-weight: 600;
             margin-bottom: 1rem;
-            color: #fff;
+            color: #0f172a;
         }
 
         .card {
-            background: #1a1a1a;
-            border: 1px solid #333;
+            background: #fff;
+            border: 1px solid #e2e8f0;
             border-radius: 12px;
             padding: 1.5rem;
             margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            transition: all 0.15s ease;
         }
 
         .card:hover {
-            border-color: #555;
+            border-color: #cbd5e1;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06);
         }
 
         .card-title {
-            font-size: 1.2rem;
+            font-size: 1rem;
             font-weight: 600;
-            color: #fff;
+            color: #0f172a;
             margin-bottom: 0.5rem;
         }
 
         .card-meta {
-            color: #888;
-            font-size: 0.9rem;
+            color: #64748b;
+            font-size: 0.875rem;
         }
 
         .grid {
@@ -107,71 +149,75 @@
         }
 
         .stat-card {
-            background: #1a1a1a;
-            border: 1px solid #333;
+            background: #fff;
+            border: 1px solid #e2e8f0;
             border-radius: 12px;
             padding: 1.5rem 2rem;
             text-align: center;
             flex: 1;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
 
         .stat-number {
-            font-size: 3rem;
-            font-weight: bold;
-            color: #4a9eff;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #6366f1;
         }
 
         .stat-label {
-            color: #888;
-            margin-top: 0.5rem;
+            color: #64748b;
+            margin-top: 0.25rem;
+            font-size: 0.9rem;
         }
 
         .badge {
             display: inline-block;
             padding: 0.25rem 0.75rem;
             border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: 500;
+            font-size: 0.75rem;
+            font-weight: 600;
         }
 
         .badge-success {
-            background: #1a4d1a;
-            color: #4ade80;
+            background: #dcfce7;
+            color: #15803d;
         }
 
         .badge-pending {
-            background: #4d4d1a;
-            color: #facc15;
+            background: #fef9c3;
+            color: #a16207;
         }
 
         .badge-info {
-            background: #1a3d4d;
-            color: #38bdf8;
+            background: #dbeafe;
+            color: #1d4ed8;
         }
 
         .btn {
             display: inline-block;
-            padding: 0.75rem 1.5rem;
-            background: #4a9eff;
+            padding: 0.625rem 1.25rem;
+            background: #6366f1;
             color: #fff;
             border: none;
             border-radius: 8px;
-            font-size: 1rem;
+            font-size: 0.9rem;
+            font-weight: 500;
             cursor: pointer;
             text-decoration: none;
-            transition: background 0.2s;
+            transition: all 0.15s ease;
         }
 
         .btn:hover {
-            background: #3a8eef;
+            background: #4f46e5;
         }
 
         .btn-secondary {
-            background: #333;
+            background: #f1f5f9;
+            color: #475569;
         }
 
         .btn-secondary:hover {
-            background: #444;
+            background: #e2e8f0;
         }
 
         .search-box {
@@ -183,85 +229,105 @@
         .search-box input {
             flex: 1;
             padding: 0.75rem 1rem;
-            border: 1px solid #333;
+            border: 1px solid #e2e8f0;
             border-radius: 8px;
-            background: #1a1a1a;
-            color: #fff;
-            font-size: 1rem;
+            background: #fff;
+            color: #1e293b;
+            font-size: 0.9rem;
+            transition: all 0.15s ease;
         }
 
         .search-box input:focus {
             outline: none;
-            border-color: #4a9eff;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .search-box input::placeholder {
+            color: #94a3b8;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
+            background: #fff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
 
         th, td {
             text-align: left;
             padding: 1rem;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid #f1f5f9;
         }
 
         th {
-            color: #888;
+            color: #64748b;
             font-weight: 500;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            background: #f8fafc;
         }
 
         tr:hover {
-            background: #1a1a1a;
+            background: #f8fafc;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
         }
 
         .segment {
             padding: 1rem;
-            border-left: 3px solid #333;
+            border-left: 3px solid #e2e8f0;
             margin-bottom: 0.5rem;
-            background: #111;
+            background: #fff;
             border-radius: 0 8px 8px 0;
+            transition: all 0.15s ease;
         }
 
         .segment:hover {
-            border-left-color: #4a9eff;
+            border-left-color: #6366f1;
         }
 
         .segment-time {
-            color: #4a9eff;
-            font-family: monospace;
-            font-size: 0.9rem;
+            color: #6366f1;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.85rem;
+            font-weight: 500;
         }
 
         .segment-text {
             margin-top: 0.5rem;
-            line-height: 1.6;
+            color: #475569;
         }
 
         .clip-card {
-            background: #111;
-            border: 1px solid #333;
+            background: #fff;
+            border: 1px solid #e2e8f0;
             border-radius: 8px;
             padding: 1rem;
             margin-bottom: 0.75rem;
         }
 
         .clip-number {
-            display: inline-block;
-            width: 28px;
-            height: 28px;
-            background: #4a9eff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            background: #6366f1;
             color: #fff;
             border-radius: 50%;
-            text-align: center;
-            line-height: 28px;
-            font-weight: bold;
-            font-size: 0.9rem;
+            font-weight: 600;
+            font-size: 0.8rem;
             margin-right: 0.75rem;
         }
 
         .clip-source {
-            color: #888;
+            color: #64748b;
             font-size: 0.85rem;
             margin-top: 0.5rem;
         }
@@ -269,40 +335,59 @@
         .clip-text {
             margin-top: 0.5rem;
             padding: 0.75rem;
-            background: #1a1a1a;
+            background: #f8fafc;
             border-radius: 6px;
             font-style: italic;
-            line-height: 1.5;
+            color: #475569;
         }
 
         pre {
-            background: #111;
+            background: #f8fafc;
             padding: 1.5rem;
             border-radius: 8px;
             overflow-x: auto;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 0.9rem;
-            line-height: 1.6;
-            white-space: pre-wrap;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.85rem;
+            color: #475569;
+            border: 1px solid #e2e8f0;
         }
 
         .empty-state {
             text-align: center;
             padding: 4rem 2rem;
-            color: #666;
+            color: #94a3b8;
         }
 
         .empty-state h2 {
-            color: #888;
+            color: #64748b;
             margin-bottom: 0.5rem;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
         }
     </style>
 </head>
 <body>
     <nav>
-        <a href="/" class="logo">Video Manager</a>
+        <a href="/" class="logo">ClipFinder</a>
         <div class="links">
-            <a href="/chat" {% if request.path == '/chat' %}class="active"{% endif %} style="background: linear-gradient(135deg, #4a9eff, #a855f7); color: white; font-weight: 600;">Script Chat</a>
+            <a href="/chat" {% if request.path == '/chat' %}class="active primary-nav"{% else %}class="primary-nav"{% endif %}>Script Chat</a>
             <a href="/videos" {% if request.path == '/videos' %}class="active"{% endif %}>Videos</a>
             <a href="/transcripts" {% if request.path.startswith('/transcripts') %}class="active"{% endif %}>Transcripts</a>
             <a href="/storylines" {% if request.path.startswith('/storylines') %}class="active"{% endif %}>Storylines</a>

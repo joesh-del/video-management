@@ -1,9 +1,82 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - Video Manager{% endblock %}
+{% block title %}Dashboard - ClipFinder{% endblock %}
 
 {% block content %}
-<h1>Dashboard</h1>
+<style>
+    .dashboard-header {
+        margin-bottom: 2rem;
+    }
+
+    .dashboard-header h1 {
+        margin-bottom: 0.5rem;
+    }
+
+    .dashboard-header p {
+        color: #64748b;
+        font-size: 0.95rem;
+    }
+
+    .quick-actions {
+        margin-top: 2rem;
+    }
+
+    .quick-actions h2 {
+        margin-bottom: 1rem;
+    }
+
+    .action-card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-decoration: none;
+        transition: all 0.15s ease;
+        display: block;
+    }
+
+    .action-card:hover {
+        border-color: #6366f1;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+        transform: translateY(-2px);
+    }
+
+    .action-card .card-title {
+        color: #0f172a;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .action-card .card-meta {
+        color: #64748b;
+        font-size: 0.875rem;
+    }
+
+    .featured-action {
+        background: linear-gradient(135deg, #6366f1, #8b5cf6);
+        border: none;
+        color: white;
+    }
+
+    .featured-action .card-title {
+        color: white;
+    }
+
+    .featured-action .card-meta {
+        color: rgba(255,255,255,0.8);
+    }
+
+    .featured-action:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
+    }
+</style>
+
+<div class="dashboard-header">
+    <h1>Welcome to ClipFinder</h1>
+    <p>Your video library at a glance. Use Script Chat to find and generate clips from your collection.</p>
+</div>
 
 <div class="stats">
     <div class="stat-card">
@@ -20,19 +93,25 @@
     </div>
 </div>
 
-<h2>Quick Actions</h2>
-<div class="grid">
-    <a href="/transcripts/search" class="card" style="text-decoration: none;">
-        <div class="card-title">Search Transcripts</div>
-        <div class="card-meta">Find specific quotes or topics across all videos</div>
-    </a>
-    <a href="/storylines" class="card" style="text-decoration: none;">
-        <div class="card-title">View Storylines</div>
-        <div class="card-meta">Review AI-generated storyline suggestions</div>
-    </a>
-    <a href="/edit-scripts" class="card" style="text-decoration: none;">
-        <div class="card-title">Edit Scripts</div>
-        <div class="card-meta">View scripts ready for Premiere Pro</div>
-    </a>
+<div class="quick-actions">
+    <h2>Quick Actions</h2>
+    <div class="grid">
+        <a href="/chat" class="action-card featured-action">
+            <div class="card-title">Script Chat</div>
+            <div class="card-meta">Generate scripts from your videos using AI</div>
+        </a>
+        <a href="/transcripts/search" class="action-card">
+            <div class="card-title">Search Transcripts</div>
+            <div class="card-meta">Find specific quotes or topics across all videos</div>
+        </a>
+        <a href="/storylines" class="action-card">
+            <div class="card-title">View Storylines</div>
+            <div class="card-meta">Review AI-generated storyline suggestions</div>
+        </a>
+        <a href="/edit-scripts" class="action-card">
+            <div class="card-title">Edit Scripts</div>
+            <div class="card-meta">View scripts ready for Premiere Pro</div>
+        </a>
+    </div>
 </div>
 {% endblock %}
