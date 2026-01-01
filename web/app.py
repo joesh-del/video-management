@@ -528,8 +528,8 @@ WHAT MAKES A GREAT CLIP:
 - "I believe we must look to the stars" ✓ EVOCATIVE
 - "We're going to develop a process" ✗ MUNDANE/CONTEXTUAL
 
-EXAMPLE OF GOOD OUTPUT:
----
+EXAMPLE:
+
 **[The Future We Build]**
 
 [NARRATE: What does it take to shape tomorrow? The answer lies in how we lead today.]
@@ -543,13 +543,12 @@ EXAMPLE OF GOOD OUTPUT:
 [NARRATE: And ultimately, it demands action.]
 
 [CLIP 3: "The future belongs to those who believe in the beauty of their dreams."]
----
 
-Then provide JSON with the clips only (not narration):
+
+IMPORTANT: After the script, provide ONLY the JSON block with clip data. No explanations, no "Why this works", just the JSON:
 ```json
 {{
   "title": "...",
-  "total_duration": 60,
   "clips": [
     {{"video_id": "exact-uuid", "video_title": "...", "start_time": 10.0, "end_time": 22.0, "text": "exact text"}}
   ]

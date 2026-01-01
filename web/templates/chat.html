@@ -82,26 +82,33 @@
     }
 
     /* Script output */
-    .script-output {
-        background: #faf9f7;
-        border-left: 3px solid #d97757;
-        padding: 1.25rem;
-        margin: 1rem 0;
-        border-radius: 0 6px 6px 0;
-    }
-
     .script-title {
         font-weight: 600;
-        font-size: 1rem;
+        font-size: 1.125rem;
         color: #1a1a1a;
-        margin-bottom: 1rem;
+        margin: 1rem 0 0.75rem 0;
         padding-bottom: 0.5rem;
         border-bottom: 1px solid #e5e4df;
     }
 
-    .script-output p {
-        margin-bottom: 0.625rem;
-        line-height: 1.8;
+    .narration {
+        color: #666;
+        font-style: italic;
+        margin: 0.5rem 0;
+        padding-left: 0.75rem;
+        border-left: 2px solid #e5e4df;
+        font-size: 0.9rem;
+    }
+
+    .clip-line {
+        background: #faf9f7;
+        border-left: 3px solid #d97757;
+        padding: 0.75rem 1rem;
+        margin: 0.5rem 0;
+        border-radius: 0 6px 6px 0;
+        font-size: 1rem;
+        line-height: 1.6;
+        color: #1a1a1a;
     }
 
     /* Clips section */
@@ -388,15 +395,31 @@ let history = [];
 let clips = [];
 
 function format(text) {
+    // Remove JSON blocks and cleanup
     text = text.replace(/```json[\s\S]*?```/g, '');
-    text = text.replace(/---\s*\n?\*\*\[(.*?)\]\*\*\s*\n([\s\S]*?)\n?---/g, (m, title, content) => {
-        const lines = content.trim().split('\n').filter(l => l.trim());
-        return `<div class="script-output"><div class="script-title">${title}</div>${lines.map(l => `<p>${l.trim()}</p>`).join('')}</div>`;
-    });
+    text = text.replace(/---/g, '');
+    text = text.replace(/Why this works:[\s\S]*?(?=\n\n|$)/gi, '');
+    text = text.replace(/Then provide JSON[\s\S]*?(?=\n\n|$)/gi, '');
+
+    // Format script with title
+    text = text.replace(/\*\*\[(.*?)\]\*\*/g, '<div class="script-title">$1</div>');
+
+    // Format NARRATE and CLIP markers
+    text = text.replace(/\[NARRATE:\s*(.*?)\]/g, '<p class="narration">$1</p>');
+    text = text.replace(/\[CLIP\s*\d*:\s*"(.*?)"\]/g, '<p class="clip-line">"$1"</p>');
+
+    // Bold and italic
     text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // Clean up extra whitespace
+    text = text.replace(/\n{3,}/g, '\n\n');
+
     const paras = text.split('\n\n').filter(p => p.trim());
-    return paras.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+    return paras.map(p => {
+        if (p.includes('script-title') || p.includes('narration') || p.includes('clip-line')) return p;
+        return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+    }).join('');
 }
 
 function addMsg(content, isUser, clipData = [], ctx = 0) {
