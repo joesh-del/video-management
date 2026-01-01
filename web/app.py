@@ -522,13 +522,13 @@ Then explain briefly why this script works (1-2 sentences).
 
 Finally, provide the technical details in JSON:
 ```json
-{
+{{
   "title": "Script Title",
   "total_duration": 60,
   "clips": [
-    {"video_id": "...", "video_title": "...", "start_time": 10.0, "end_time": 22.0, "text": "..."}
+    {{"video_id": "...", "video_title": "...", "start_time": 10.0, "end_time": 22.0, "text": "..."}}
   ]
-}
+}}
 ```
 
 AVAILABLE TRANSCRIPT DATA:
@@ -594,25 +594,44 @@ def chat():
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
     """Handle chat messages for script generation."""
-    data = request.json
-    user_message = data.get('message', '').strip()
-    conversation_history = data.get('history', [])
+    try:
+        data = request.json
+        user_message = data.get('message', '').strip()
+        conversation_history = data.get('history', [])
 
-    if not user_message:
-        return jsonify({'error': 'No message provided'}), 400
+        if not user_message:
+            return jsonify({'error': 'No message provided'}), 400
 
-    # Search for relevant transcript context
-    context = search_transcripts_for_context(user_message)
+        # Search for relevant transcript context
+        context = search_transcripts_for_context(user_message)
 
-    # Generate response with AI
-    result = generate_script_with_ai(user_message, context, conversation_history)
+        if not context:
+            return jsonify({
+                'response': "I couldn't find any matching content in the video library. Try different keywords or check the Transcripts page to see what's available.",
+                'clips': [],
+                'has_script': False,
+                'context_segments': 0
+            })
 
-    return jsonify({
-        'response': result['message'],
-        'clips': result.get('clips', []),
-        'has_script': result.get('has_script', False),
-        'context_segments': len(context)
-    })
+        # Generate response with AI
+        result = generate_script_with_ai(user_message, context, conversation_history)
+
+        return jsonify({
+            'response': result['message'],
+            'clips': result.get('clips', []),
+            'has_script': result.get('has_script', False),
+            'context_segments': len(context)
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': f'Server error: {str(e)}',
+            'response': f'Sorry, there was an error processing your request: {str(e)}',
+            'clips': [],
+            'has_script': False
+        }), 500
 
 
 @app.route('/api/chat/create-video', methods=['POST'])
