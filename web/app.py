@@ -270,10 +270,11 @@ def get_openai_client():
     return OpenAI(api_key=api_key)
 
 
-def search_transcripts_for_context(query: str, limit: int = 500):
+def search_transcripts_for_context(query: str, limit: int = 800):
     """Search transcripts for relevant segments based on query keywords."""
-    # Extract keywords from query
-    keywords = re.findall(r'\b\w{4,}\b', query.lower())
+    # Extract keywords from query - get meaningful words
+    stop_words = {'want', 'need', 'like', 'make', 'create', 'find', 'give', 'about', 'from', 'with', 'that', 'this', 'have', 'will', 'would', 'could', 'should', 'video', 'script', 'clips', 'second', 'minute'}
+    keywords = [w for w in re.findall(r'\b\w{4,}\b', query.lower()) if w not in stop_words]
 
     # Extract year filters from query (e.g., "2020", "2023", "from 2020")
     year_pattern = re.findall(r'\b(19\d{2}|20\d{2})\b', query)
@@ -306,14 +307,14 @@ def search_transcripts_for_context(query: str, limit: int = 500):
         else:
             filtered_video_ids = set(video_map.keys())
 
-        # Search for matching segments
-        for keyword in keywords[:5]:  # Limit keywords to search
+        # Search for matching segments - use more keywords for better coverage
+        for keyword in keywords[:8]:
             segments = db_session.query(TranscriptSegment).join(
                 Transcript, TranscriptSegment.transcript_id == Transcript.id
             ).filter(
                 TranscriptSegment.text.ilike(f'%{keyword}%'),
                 Transcript.status == 'completed'
-            ).limit(150).all()
+            ).limit(200).all()
 
             for seg in segments:
                 transcript = db_session.query(Transcript).filter(
@@ -480,58 +481,62 @@ def generate_script_with_ai(user_message: str, transcript_context: list, convers
         context_text += f"Video: {t['video_title']} | {t['start']:.1f}s-{t['end']:.1f}s | ID:{t['video_id']}\n"
         context_text += f'"{t["text"]}"\n\n'
 
-    system_prompt = f"""You are an expert video editor and storyteller. Your job is to create COHERENT, MEANINGFUL scripts by combining clips from available footage.
+    system_prompt = f"""You are a master video editor and storyteller creating compelling short videos. Your goal: craft scripts that feel like ONE cohesive piece, not random clips stitched together.
 
 {summary}
 
-CRITICAL - NARRATIVE COHERENCE:
-- The script must tell a STORY or make a POINT that flows logically
-- Each clip must connect to the next - think about transitions
-- The message should build: Opening hook → Development → Climax → Resolution
-- Avoid random quotes thrown together - every clip must serve the narrative
-- Read the script out loud in your head - does it sound like ONE speech?
+YOUR MISSION:
+Create a script that flows so naturally it sounds like it was written as one speech. The viewer should never feel jarring transitions.
 
-SCRIPT STRUCTURE FOR 60 SECONDS:
-1. HOOK (10-15s): Grab attention with a bold statement or question
-2. BUILD (20-25s): Develop the theme with supporting points
-3. CLIMAX (15-20s): The most powerful/emotional moment
-4. CLOSE (10-15s): Land the message with impact
+STORYTELLING PRINCIPLES:
+1. THEME UNITY - Every clip must serve ONE central message
+2. EMOTIONAL ARC - Build tension, then release it
+3. SMOOTH TRANSITIONS - The last words of one clip should naturally lead to the next
+4. VARIETY - Mix emotional intensity (quiet moments with powerful ones)
+5. MEMORABLE ENDING - The final clip should be the most impactful
 
-ACCURACY RULES:
-- ONLY use clips from the transcript data below
-- Use EXACT text and timestamps from the data
-- If you can't find clips that make a coherent story, say so
-- Never invent quotes or approximate timestamps
+SCRIPT STRUCTURE (adjust based on requested duration):
+- HOOK (15-20%): A provocative statement or question that grabs attention
+- BUILD (40-50%): Layer supporting ideas, each building on the last
+- CLIMAX (20-25%): The most powerful, emotional moment
+- RESOLUTION (10-15%): Land with a memorable, quotable line
 
-RESPONSE FORMAT:
-First, present the script as CLEAN TEXT that can be read aloud - no timestamps, no video IDs, just the words:
+TECHNICAL REQUIREMENTS:
+- ONLY use clips from the transcript data provided
+- Use EXACT video_id, start_time, end_time, and text from the data
+- Aim for 4-7 clips for a 60-second video
+- Each clip should be 6-15 seconds for good pacing
+- If clips don't naturally connect, DON'T force them together
+
+OUTPUT FORMAT:
+Present the script as clean, readable text first:
 
 ---
-**[SCRIPT TITLE]**
+**[TITLE]**
 
-[Opening line from first clip]
+"[First clip text, edited if needed for flow]"
 
-[Next line flowing naturally...]
+"[Second clip text...]"
 
-[Building to the key message...]
+"[Continue building...]"
 
-[Powerful closing line]
+"[Powerful closing line]"
 ---
 
-Then explain briefly why this script works (1-2 sentences).
+Brief explanation of why this works (1-2 sentences).
 
-Finally, provide the technical details in JSON:
+Then the technical JSON:
 ```json
 {{
-  "title": "Script Title",
+  "title": "...",
   "total_duration": 60,
   "clips": [
-    {{"video_id": "...", "video_title": "...", "start_time": 10.0, "end_time": 22.0, "text": "..."}}
+    {{"video_id": "exact-uuid-from-data", "video_title": "...", "start_time": 10.0, "end_time": 22.0, "text": "exact quote from data"}}
   ]
 }}
 ```
 
-AVAILABLE TRANSCRIPT DATA:
+TRANSCRIPT DATA TO USE:
 """ + context_text
 
     # Build messages
