@@ -1479,8 +1479,7 @@ Output ONLY the new narration text, nothing else. Do not include quotes or any o
 
     # Generate with AI
     try:
-        import anthropic
-        client = anthropic.Anthropic()
+        client = get_anthropic_client()
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
