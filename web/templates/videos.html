@@ -4,66 +4,60 @@
 
 {% block content %}
 <style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .page-header h1 {
+        margin: 0;
+    }
+
+    .page-subtitle {
+        color: #888;
+        font-size: 0.875rem;
+        margin-left: 1rem;
+    }
+
     .toolbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 1rem;
-        margin-bottom: 1.5rem;
-        flex-wrap: wrap;
+        margin-bottom: 1rem;
     }
 
-    .toolbar-left {
+    .search-form {
         display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        flex: 1;
-    }
-
-    .toolbar-right {
-        display: flex;
-        align-items: center;
         gap: 0.5rem;
     }
 
     .search-input {
-        width: 280px;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #e5e4df;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        width: 250px;
     }
 
-    /* Stats bar */
-    .stats-bar {
-        display: flex;
-        gap: 1.5rem;
-        padding: 1rem 1.25rem;
-        background: var(--bg-secondary);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-item {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .stat-value {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: var(--text);
-    }
-
-    .stat-label {
-        font-size: 0.8125rem;
-        color: var(--text-secondary);
+    .search-input:focus {
+        outline: none;
+        border-color: #d97757;
     }
 
     /* Table styles */
     .table-container {
-        background: var(--bg-secondary);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
+        background: white;
+        border-radius: 8px;
         overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .table-scroll {
+        max-height: 75vh;
+        overflow-y: auto;
     }
 
     .data-table {
@@ -73,15 +67,15 @@
     }
 
     .data-table th {
-        background: var(--bg);
+        background: #f8f8f6;
         padding: 0.75rem 1rem;
         text-align: left;
         font-weight: 600;
-        color: var(--text-secondary);
-        font-size: 0.6875rem;
+        color: #666;
+        font-size: 0.75rem;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        border-bottom: 1px solid var(--border);
+        letter-spacing: 0.03em;
+        border-bottom: 2px solid #e5e4df;
         position: sticky;
         top: 0;
         z-index: 10;
@@ -89,213 +83,107 @@
 
     .data-table td {
         padding: 0.625rem 1rem;
-        border-bottom: 1px solid var(--border-light);
+        border-bottom: 1px solid #e5e4df;
         vertical-align: middle;
     }
 
-    .data-table tr:hover td {
-        background: var(--bg);
+    .data-table tbody tr {
+        transition: background 0.15s;
+    }
+
+    .data-table tbody tr:hover {
+        background: #faf9f7;
     }
 
     .data-table tr:last-child td {
         border-bottom: none;
     }
 
-    /* Editable cells */
-    .editable {
-        padding: 0.375rem 0.5rem;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        min-width: 60px;
-        display: inline-block;
-    }
-
-    .editable:hover {
-        background: var(--border-light);
-    }
-
-    .editable.empty {
-        color: var(--text-muted);
-    }
-
-    .editable input, .editable textarea {
-        width: 100%;
-        padding: 0.25rem 0.5rem;
-        border: 1px solid var(--accent);
-        border-radius: 4px;
-        font-size: inherit;
-        font-family: inherit;
-        background: white;
-        outline: none;
-        box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.1);
-    }
-
-    .editable textarea {
-        min-height: 60px;
-        resize: vertical;
-    }
-
-    /* Title column */
-    .video-title {
+    /* Column styles */
+    .col-title {
         font-weight: 500;
-        color: var(--text);
-        max-width: 200px;
-    }
-
-    .video-title .editable {
-        display: block;
+        color: #1a1a1a;
+        max-width: 250px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
-    /* Description column */
-    .desc-col {
+    .col-desc {
         max-width: 200px;
-    }
-
-    .desc-col .editable {
-        display: block;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        color: #666;
         font-size: 0.75rem;
     }
 
-    /* Duration */
-    .duration {
+    .col-meta {
+        color: #888;
+        font-size: 0.75rem;
+    }
+
+    .col-duration {
         font-family: 'SF Mono', Monaco, monospace;
-        color: var(--accent);
+        color: #d97757;
         font-size: 0.75rem;
         font-weight: 500;
     }
 
-    /* Actions column */
-    .row-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.375rem;
-        white-space: nowrap;
-    }
-
-    .btn-autofill {
-        background: var(--purple);
-        padding: 0.25rem 0.5rem;
-        font-size: 0.6875rem;
-    }
-
-    .btn-autofill:hover {
-        background: #7c3aed;
-    }
-
-    .btn-autofill:disabled {
-        background: var(--border);
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-save {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.6875rem;
-        display: none;
-    }
-
-    .btn-save.show {
-        display: inline-flex;
-    }
-
-    .saved-msg {
-        color: var(--success);
-        font-size: 0.6875rem;
-        display: none;
-    }
-
-    .saved-msg.show {
+    /* Status badges */
+    .status-done {
         display: inline-flex;
         align-items: center;
         gap: 0.25rem;
+        padding: 0.125rem 0.5rem;
+        background: #dcfce7;
+        color: #166534;
+        border-radius: 1rem;
+        font-size: 0.6875rem;
+        font-weight: 500;
     }
 
-    /* Table scroll */
-    .table-scroll {
-        max-height: 70vh;
-        overflow-y: auto;
+    .status-done::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        background: #22c55e;
+        border-radius: 50%;
     }
 
-    /* Bulk progress modal */
-    .bulk-progress {
+    .status-pending {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        background: #f3f4f6;
+        color: #6b7280;
+        border-radius: 1rem;
+        font-size: 0.6875rem;
+        font-weight: 500;
+    }
+
+    /* Footer */
+    .table-footer {
         margin-top: 1rem;
-    }
-
-    .bulk-progress-header {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 0.5rem;
-        font-size: 0.875rem;
-    }
-
-    .bulk-log {
-        max-height: 200px;
-        overflow-y: auto;
-        margin-top: 1rem;
-        background: var(--bg);
-        border-radius: 6px;
-        padding: 0.75rem;
         font-size: 0.8125rem;
-        font-family: 'SF Mono', Monaco, monospace;
+        color: #888;
     }
-
-    .bulk-log-item {
-        padding: 0.25rem 0;
-    }
-
-    .bulk-log-item.success { color: var(--success); }
-    .bulk-log-item.error { color: #dc2626; }
-    .bulk-log-item.pending { color: var(--text-muted); }
 </style>
 
 <div class="page-header">
-    <div class="page-header-left">
+    <div style="display: flex; align-items: center;">
         <h1>Videos</h1>
-        <span class="page-subtitle">{{ videos|length }} videos in library</span>
-    </div>
-</div>
-
-<div class="stats-bar">
-    <div class="stat-item">
-        <span class="stat-value">{{ videos|selectattr('has_transcript')|list|length }}</span>
-        <span class="stat-label">Transcribed</span>
-    </div>
-    <div class="stat-item">
-        <span class="stat-value">{{ videos|selectattr('speaker')|list|length }}</span>
-        <span class="stat-label">With Speaker</span>
-    </div>
-    <div class="stat-item">
-        <span class="stat-value">{{ videos|selectattr('description')|list|length }}</span>
-        <span class="stat-label">With Description</span>
+        <span class="page-subtitle">{{ videos|length }} videos</span>
     </div>
 </div>
 
 <div class="toolbar">
-    <div class="toolbar-left">
-        <form method="GET" action="/videos" style="display: flex; gap: 0.5rem;">
-            <input type="text" name="q" value="{{ search_query }}" placeholder="Search videos..." class="input search-input">
-            <button type="submit" class="btn btn-secondary btn-sm">Search</button>
-            {% if search_query %}
-            <a href="/videos" class="btn btn-secondary btn-sm">Clear</a>
-            {% endif %}
-        </form>
-    </div>
-    <div class="toolbar-right">
-        <button class="btn btn-purple btn-sm" onclick="bulkAutofill()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                <path d="M2 17l10 5 10-5"/>
-            </svg>
-            Auto-fill All
-        </button>
-    </div>
+    <form method="GET" action="/videos" class="search-form">
+        <input type="text" name="q" value="{{ search_query }}" placeholder="Search videos..." class="search-input">
+        <button type="submit" class="btn btn-sm">Search</button>
+        {% if search_query %}
+        <a href="/videos" class="btn btn-secondary btn-sm">Clear</a>
+        {% endif %}
+    </form>
 </div>
 
 {% if videos %}
@@ -307,49 +195,35 @@
                     <th>Title</th>
                     <th>Description</th>
                     <th>Speaker</th>
-                    <th>Event</th>
-                    <th>Date</th>
-                    <th>Topics</th>
                     <th>Duration</th>
+                    <th>Date</th>
                     <th>Status</th>
-                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for video in videos %}
-                <tr data-id="{{ video.id }}" data-has-transcript="{{ 'true' if video.has_transcript else 'false' }}">
-                    <td class="video-title">
-                        <span class="editable" data-field="filename" onclick="startEdit(this)">{{ video.filename.replace('.mp4', '') }}</span>
+                <tr {% if video.transcript_id %}onclick="window.location='/transcripts/{{ video.transcript_id }}'" style="cursor: pointer;"{% endif %}>
+                    <td class="col-title" title="{{ video.filename }}">
+                        {{ video.filename.replace('.mp4', '') }}
                     </td>
-                    <td class="desc-col">
-                        <span class="editable {{ 'empty' if not video.description else '' }}" data-field="description" title="{{ video.description or '' }}" onclick="startEdit(this)">{{ video.description or 'Add...' }}</span>
+                    <td class="col-desc" title="{{ video.description or '' }}">
+                        {{ video.description or '—' }}
                     </td>
-                    <td>
-                        <span class="editable {{ 'empty' if not video.speaker else '' }}" data-field="speaker" onclick="startEdit(this)">{{ video.speaker or 'Add...' }}</span>
+                    <td class="col-meta">
+                        {{ video.speaker or '—' }}
                     </td>
-                    <td>
-                        <span class="editable {{ 'empty' if not video.event_name else '' }}" data-field="event_name" onclick="startEdit(this)">{{ video.event_name or 'Add...' }}</span>
+                    <td class="col-duration">
+                        {{ video.duration|duration }}
                     </td>
-                    <td>
-                        <span class="editable {{ 'empty' if not video.event_date else '' }}" data-field="event_date" data-type="date" onclick="startEdit(this)">{{ video.event_date.strftime('%Y-%m-%d') if video.event_date else 'Add...' }}</span>
+                    <td class="col-meta">
+                        {{ video.event_date.strftime('%Y-%m-%d') if video.event_date else '—' }}
                     </td>
-                    <td>
-                        <span class="editable {{ 'empty' if not (video.extra_data and video.extra_data.topics) else '' }}" data-field="topics" onclick="startEdit(this)">{{ video.extra_data.topics if video.extra_data and video.extra_data.topics else 'Add...' }}</span>
-                    </td>
-                    <td><span class="duration">{{ video.duration|duration }}</span></td>
                     <td>
                         {% if video.has_transcript %}
-                        <span class="badge badge-success"><span class="badge-dot"></span>Done</span>
+                        <span class="status-done">Transcribed</span>
                         {% else %}
-                        <span class="badge badge-neutral">Pending</span>
+                        <span class="status-pending">Pending</span>
                         {% endif %}
-                    </td>
-                    <td class="row-actions">
-                        {% if video.has_transcript %}
-                        <button class="btn btn-autofill" onclick="autofillRow(this, '{{ video.id }}')">AI</button>
-                        {% endif %}
-                        <button class="btn btn-secondary btn-save" onclick="saveRow('{{ video.id }}')">Save</button>
-                        <span class="saved-msg"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></span>
                     </td>
                 </tr>
                 {% endfor %}
@@ -357,283 +231,16 @@
         </table>
     </div>
 </div>
+
+<div class="table-footer">
+    {{ videos|length }} video{% if videos|length != 1 %}s{% endif %} &bull;
+    {{ videos|selectattr('has_transcript')|list|length }} transcribed
+</div>
+
 {% else %}
 <div class="empty-state">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-    </svg>
     <h2>No videos yet</h2>
     <p>Upload videos to get started</p>
 </div>
 {% endif %}
-
-<!-- Bulk Progress Modal -->
-<div class="modal-backdrop" id="bulkModal">
-    <div class="modal">
-        <div class="modal-header">
-            <h3 class="modal-title">Auto-filling Videos with AI</h3>
-            <button class="modal-close" onclick="closeBulkModal()">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-            </button>
-        </div>
-        <div class="modal-body">
-            <p id="bulkStatus">Analyzing transcripts and extracting metadata...</p>
-            <div class="bulk-progress">
-                <div class="bulk-progress-header">
-                    <span id="bulkProgressText">0 / 0</span>
-                    <span id="bulkProgressPercent">0%</span>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-bar-fill" id="bulkProgressBar" style="width: 0%"></div>
-                </div>
-            </div>
-            <div class="bulk-log" id="bulkLog"></div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeBulkModal()" id="bulkCloseBtn" disabled>Close</button>
-        </div>
-    </div>
-</div>
-
-<script>
-let pendingChanges = {};
-let currentEdit = null;
-
-function startEdit(el) {
-    if (currentEdit === el) return;
-    if (currentEdit) finishEdit(currentEdit);
-
-    const field = el.dataset.field;
-    const type = el.dataset.type || 'text';
-    let value = el.textContent.trim();
-
-    if (el.classList.contains('empty')) value = '';
-
-    el.classList.add('editing');
-    el.classList.remove('empty');
-
-    if (type === 'date') {
-        el.innerHTML = `<input type="date" value="${value}" onblur="finishEdit(this.parentElement)" onkeydown="handleKey(event)">`;
-    } else if (field === 'description') {
-        el.innerHTML = `<textarea rows="2" onblur="finishEdit(this.parentElement)" onkeydown="handleKey(event)">${value}</textarea>`;
-    } else {
-        el.innerHTML = `<input type="text" value="${value}" onblur="finishEdit(this.parentElement)" onkeydown="handleKey(event)">`;
-    }
-
-    const input = el.querySelector('input, textarea');
-    input.focus();
-    if (input.select) input.select();
-    currentEdit = el;
-}
-
-function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        finishEdit(e.target.parentElement);
-    } else if (e.key === 'Escape') {
-        location.reload();
-    }
-}
-
-function finishEdit(el) {
-    const input = el.querySelector('input, textarea');
-    if (!input) return;
-
-    const newValue = input.value.trim();
-    const field = el.dataset.field;
-    const row = el.closest('tr');
-    const videoId = row.dataset.id;
-
-    el.textContent = newValue || 'Add...';
-    el.classList.remove('editing');
-    if (!newValue) el.classList.add('empty');
-    currentEdit = null;
-
-    if (!pendingChanges[videoId]) pendingChanges[videoId] = {};
-    pendingChanges[videoId][field] = newValue;
-
-    row.querySelector('.btn-save').classList.add('show');
-    row.querySelector('.saved-msg').classList.remove('show');
-}
-
-async function saveRow(videoId) {
-    const changes = pendingChanges[videoId];
-    if (!changes || Object.keys(changes).length === 0) {
-        showToast('No changes to save', 'info');
-        return;
-    }
-
-    const row = document.querySelector(`tr[data-id="${videoId}"]`);
-
-    try {
-        const res = await fetch(`/api/videos/${videoId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(changes)
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-            delete pendingChanges[videoId];
-            row.querySelector('.btn-save').classList.remove('show');
-            row.querySelector('.saved-msg').classList.add('show');
-            showToast('Saved!', 'success');
-            setTimeout(() => row.querySelector('.saved-msg').classList.remove('show'), 2000);
-        } else {
-            showToast('Error: ' + (data.error || 'Failed'), 'error');
-        }
-    } catch (e) {
-        showToast('Error: ' + e.message, 'error');
-    }
-}
-
-async function autofillRow(btn, videoId) {
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>';
-
-    try {
-        const res = await fetch(`/api/videos/${videoId}/autofill`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        const data = await res.json();
-
-        if (data.success && data.suggestions) {
-            const row = document.querySelector(`tr[data-id="${videoId}"]`);
-            const s = data.suggestions;
-
-            ['description', 'speaker', 'event_name', 'topics'].forEach(field => {
-                if (s[field]) {
-                    const el = row.querySelector(`[data-field="${field}"]`);
-                    if (el) {
-                        el.textContent = s[field];
-                        el.classList.remove('empty');
-                        if (!pendingChanges[videoId]) pendingChanges[videoId] = {};
-                        pendingChanges[videoId][field] = s[field];
-                    }
-                }
-            });
-
-            row.querySelector('.btn-save').classList.add('show');
-            showToast('AI analysis complete!', 'success');
-        } else {
-            showToast('Error: ' + (data.error || 'Failed'), 'error');
-        }
-    } catch (e) {
-        showToast('Error: ' + e.message, 'error');
-    }
-
-    btn.disabled = false;
-    btn.innerHTML = 'AI';
-}
-
-async function bulkAutofill() {
-    const rows = document.querySelectorAll('tr[data-has-transcript="true"]');
-    if (rows.length === 0) {
-        showToast('No transcribed videos', 'info');
-        return;
-    }
-
-    document.getElementById('bulkModal').classList.add('show');
-    document.getElementById('bulkCloseBtn').disabled = true;
-    document.getElementById('bulkLog').innerHTML = '';
-
-    let completed = 0;
-    const total = rows.length;
-
-    for (const row of rows) {
-        const videoId = row.dataset.id;
-        const title = row.querySelector('[data-field="filename"]').textContent;
-
-        addBulkLog(`Processing: ${title}...`, 'pending');
-
-        try {
-            const res = await fetch(`/api/videos/${videoId}/autofill`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            const data = await res.json();
-
-            if (data.success && data.suggestions) {
-                const s = data.suggestions;
-                const updates = {};
-
-                ['description', 'speaker', 'event_name', 'topics'].forEach(field => {
-                    if (s[field]) {
-                        const el = row.querySelector(`[data-field="${field}"]`);
-                        if (el) {
-                            el.textContent = s[field];
-                            el.classList.remove('empty');
-                            updates[field] = s[field];
-                        }
-                    }
-                });
-
-                await fetch(`/api/videos/${videoId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updates)
-                });
-
-                updateBulkLog(`${title} - Done!`, 'success');
-            } else {
-                updateBulkLog(`${title} - ${data.error || 'Failed'}`, 'error');
-            }
-        } catch (e) {
-            updateBulkLog(`${title} - Error`, 'error');
-        }
-
-        completed++;
-        updateBulkProgress(completed, total);
-    }
-
-    document.getElementById('bulkStatus').textContent = 'Complete!';
-    document.getElementById('bulkCloseBtn').disabled = false;
-}
-
-function updateBulkProgress(completed, total) {
-    const percent = Math.round((completed / total) * 100);
-    document.getElementById('bulkProgressText').textContent = `${completed} / ${total}`;
-    document.getElementById('bulkProgressPercent').textContent = `${percent}%`;
-    document.getElementById('bulkProgressBar').style.width = `${percent}%`;
-}
-
-function addBulkLog(text, type) {
-    const log = document.getElementById('bulkLog');
-    const item = document.createElement('div');
-    item.className = `bulk-log-item ${type}`;
-    item.textContent = text;
-    item.id = 'bulk-log-current';
-    log.appendChild(item);
-    log.scrollTop = log.scrollHeight;
-}
-
-function updateBulkLog(text, type) {
-    const current = document.getElementById('bulk-log-current');
-    if (current) {
-        current.textContent = text;
-        current.className = `bulk-log-item ${type}`;
-        current.removeAttribute('id');
-    }
-}
-
-function closeBulkModal() {
-    document.getElementById('bulkModal').classList.remove('show');
-}
-
-document.getElementById('bulkModal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'bulkModal') closeBulkModal();
-});
-
-document.addEventListener('click', (e) => {
-    if (currentEdit && !currentEdit.contains(e.target) && !e.target.closest('.editable')) {
-        finishEdit(currentEdit);
-    }
-});
-</script>
 {% endblock %}

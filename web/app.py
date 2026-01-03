@@ -140,6 +140,7 @@ def videos():
                 'status': v.status,
                 'created_at': v.created_at,
                 'has_transcript': transcript is not None,
+                'transcript_id': str(transcript.id) if transcript else None,
                 's3_key': v.s3_key,
                 'speaker': getattr(v, 'speaker', None),
                 'event_name': getattr(v, 'event_name', None),
