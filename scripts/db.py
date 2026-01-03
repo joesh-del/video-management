@@ -10,6 +10,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -35,7 +36,7 @@ class Video(Base):
     filename = Column(String(500), nullable=False)
     original_filename = Column(String(500), nullable=False)
     s3_key = Column(String(1000), nullable=False, unique=True)
-    s3_bucket = Column(String(255), nullable=False, default="per-aspera-brain")
+    s3_bucket = Column(String(255), nullable=False, default="mv-brain")
     file_size_bytes = Column(BigInteger)
     duration_seconds = Column(Numeric(10, 2))
     resolution = Column(String(50))
@@ -216,6 +217,8 @@ class User(Base):
     name = Column(String(255), nullable=False)
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Integer, default=1)
+    totp_secret = Column(String(32), nullable=True)  # 2FA secret key
+    totp_enabled = Column(Integer, default=0)  # 1 = 2FA required
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     last_login = Column(DateTime(timezone=True))
 
@@ -321,6 +324,229 @@ class VoiceAvatar(Base):
 
     # Relationships
     creator = relationship("User")
+
+
+class AILog(Base):
+    """Log of all AI API calls for quality monitoring."""
+
+    __tablename__ = "ai_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Request metadata
+    request_type = Column(String(50), nullable=False)  # chat, regenerate_clip, regenerate_record, etc.
+    model = Column(String(100), nullable=False)  # claude-sonnet, gpt-4o, etc.
+
+    # Context
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+
+    # Request/Response content
+    prompt = Column(Text, nullable=True)  # The prompt sent to AI
+    context_summary = Column(Text, nullable=True)  # Summary of context provided (not full transcripts)
+    response = Column(Text, nullable=True)  # Full AI response
+
+    # Extracted results
+    clips_generated = Column(Integer, default=0)  # Number of clips in response
+    response_json = Column(JSONB, nullable=True)  # Parsed JSON from response (clips, etc.)
+
+    # Performance & Status
+    success = Column(Integer, default=1)  # 1 = success, 0 = failure
+    error_message = Column(Text, nullable=True)  # Error message if failed
+    latency_ms = Column(Float, nullable=True)  # Time taken in milliseconds
+    input_tokens = Column(Integer, nullable=True)  # Token count (if available)
+    output_tokens = Column(Integer, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User")
+    conversation = relationship("Conversation")
+
+
+class Persona(Base):
+    """Voice profiles for people (Dan Goldin, etc.)."""
+
+    __tablename__ = "personas"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False, unique=True)
+
+    # Manual voice configuration
+    description = Column(Text)  # Who is this person
+    tone = Column(Text)  # e.g., "authoritative but approachable"
+    style_notes = Column(Text)  # Writing style notes
+    topics = Column(JSONB, default=[])  # Topics they typically discuss
+    vocabulary = Column(JSONB, default=[])  # Key phrases/words they use
+
+    # Auto-learned voice (populated by analyzing their content)
+    learned_style = Column(JSONB, default={})  # AI-generated style analysis
+
+    # Links to existing data
+    speaker_name_in_videos = Column(String(255))  # Links to videos.speaker field
+
+    # Metadata
+    avatar_url = Column(Text)
+    is_active = Column(Integer, default=1)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    creator = relationship("User")
+    documents = relationship("Document", back_populates="persona", cascade="all, delete-orphan")
+    social_posts = relationship("SocialPost", back_populates="persona", cascade="all, delete-orphan")
+
+
+class Document(Base):
+    """Articles, call transcripts, notes for personas."""
+
+    __tablename__ = "documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    persona_id = Column(UUID(as_uuid=True), ForeignKey("personas.id", ondelete="SET NULL"), nullable=True)
+
+    # Document info
+    title = Column(String(500), nullable=False)
+    doc_type = Column(String(50), nullable=False)  # article, call_transcript, notes, other
+
+    # Content
+    content_text = Column(Text)  # Extracted/parsed text content
+    content_summary = Column(Text)  # AI-generated summary
+    word_count = Column(Integer)
+
+    # Source file (if uploaded)
+    source_filename = Column(String(500))
+    source_s3_key = Column(String(1000))
+    source_format = Column(String(20))  # pdf, docx, txt, audio
+
+    # For audio transcripts
+    duration_seconds = Column(Numeric(10, 2))
+    transcription_provider = Column(String(50))  # whisper, aws, etc.
+
+    # Metadata
+    document_date = Column(Date)
+    source_url = Column(Text)
+    tags = Column(JSONB, default=[])
+    extra_data = Column(JSONB, default={})
+
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    persona = relationship("Persona", back_populates="documents")
+    creator = relationship("User")
+
+
+class SocialPost(Base):
+    """Historical social media posts for personas."""
+
+    __tablename__ = "social_posts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    persona_id = Column(UUID(as_uuid=True), ForeignKey("personas.id", ondelete="SET NULL"), nullable=True)
+
+    # Post info
+    platform = Column(String(50), nullable=False)  # linkedin, x, facebook, other
+    content = Column(Text, nullable=False)
+
+    # Platform metadata
+    external_post_id = Column(String(255))  # ID from the platform
+    post_url = Column(Text)
+    posted_at = Column(DateTime(timezone=True))
+
+    # Engagement metrics (optional)
+    likes = Column(Integer)
+    comments = Column(Integer)
+    shares = Column(Integer)
+    impressions = Column(Integer)
+
+    # Media attachments
+    media_urls = Column(JSONB, default=[])
+    screenshot_s3_key = Column(String(1000))  # For LinkedIn screenshots
+
+    # Metadata
+    is_original = Column(Integer, default=1)  # 1 = original post, 0 = repost/share
+    hashtags = Column(JSONB, default=[])
+    mentions = Column(JSONB, default=[])
+    extra_data = Column(JSONB, default={})
+
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    # Relationships
+    persona = relationship("Persona", back_populates="social_posts")
+    creator = relationship("User")
+
+
+class AudioRecording(Base):
+    """Audio recordings with transcripts (Otter AI imports, Zoom recordings, etc.)."""
+
+    __tablename__ = "audio_recordings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # File info
+    filename = Column(String(500), nullable=False)
+    original_filename = Column(String(500), nullable=False)
+    s3_key = Column(String(1000), nullable=False, unique=True)
+    s3_bucket = Column(String(255), nullable=False, default="mv-brain")
+    file_size_bytes = Column(BigInteger)
+    duration_seconds = Column(Numeric(10, 2))
+    format = Column(String(20))  # mp3, wav, m4a, etc.
+
+    # Recording metadata
+    title = Column(String(500))
+    recording_date = Column(Date)
+    speakers = Column(JSONB, default=[])  # List of speaker names
+    keywords = Column(JSONB, default=[])  # Otter AI keywords
+    summary = Column(Text)
+
+    # Persona association
+    persona_id = Column(UUID(as_uuid=True), ForeignKey("personas.id", ondelete="SET NULL"), nullable=True)
+
+    # Source info
+    source = Column(String(50), default="otter_ai")  # otter_ai, manual, zoom, etc.
+    source_url = Column(Text)
+
+    # Processing status
+    status = Column(String(50), default="uploaded")
+
+    # Metadata
+    extra_data = Column("metadata", JSONB, default={})
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    persona = relationship("Persona")
+    uploader = relationship("User")
+    segments = relationship("AudioSegment", back_populates="audio", cascade="all, delete-orphan")
+
+
+class AudioSegment(Base):
+    """Timestamped segments of audio transcripts."""
+
+    __tablename__ = "audio_segments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    audio_id = Column(UUID(as_uuid=True), ForeignKey("audio_recordings.id", ondelete="CASCADE"), nullable=False)
+
+    # Timing
+    segment_index = Column(Integer, nullable=False)
+    start_time = Column(Numeric(10, 3), nullable=False)  # seconds
+    end_time = Column(Numeric(10, 3), nullable=False)
+
+    # Content
+    text = Column(Text, nullable=False)
+    speaker = Column(String(100))
+
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    # Relationships
+    audio = relationship("AudioRecording", back_populates="segments")
 
 
 # Database session management

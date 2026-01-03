@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Chat - MV Videos{% endblock %}
+{% block title %}Chat - MV Internal{% endblock %}
 
 {% block content %}
 <style>
@@ -1514,7 +1514,7 @@
         <div class="message">
             <div class="message-header">
                 <div class="avatar avatar-assistant">M</div>
-                <span class="message-name">MV Videos</span>
+                <span class="message-name">MV Internal</span>
             </div>
             <div class="message-body">
                 <p>I can help you create video scripts from your library of <strong>177 transcribed videos</strong>.</p>
@@ -1771,7 +1771,7 @@ function clearChat() {
         <div class="message">
             <div class="message-header">
                 <div class="avatar avatar-assistant">M</div>
-                <span class="message-name">MV Videos</span>
+                <span class="message-name">MV Internal</span>
             </div>
             <div class="message-body">
                 <p>I can help you create video scripts from your library of <strong>177 transcribed videos</strong>.</p>
@@ -1926,7 +1926,7 @@ function addMsg(content, isUser, clipData = [], ctx = 0) {
     let html = `
         <div class="message-header">
             <div class="avatar avatar-${isUser ? 'user' : 'assistant'}">${isUser ? 'Y' : 'M'}</div>
-            <span class="message-name">${isUser ? 'You' : 'MV Videos'}</span>
+            <span class="message-name">${isUser ? 'You' : 'MV Internal'}</span>
         </div>
         <div class="message-body">${format(content)}`;
 
@@ -2028,6 +2028,69 @@ function addMsg(content, isUser, clipData = [], ctx = 0) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
+function addCopyMsg(content, persona, platform) {
+    const div = document.createElement('div');
+    div.className = 'message';
+
+    const platformLabel = {
+        'linkedin': 'LinkedIn',
+        'x': 'X (Twitter)',
+        'email': 'Email',
+        'blog': 'Blog Post'
+    }[platform] || platform;
+
+    const platformIcon = {
+        'linkedin': '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 2h-17A1.5 1.5 0 002 3.5v17A1.5 1.5 0 003.5 22h17a1.5 1.5 0 001.5-1.5v-17A1.5 1.5 0 0020.5 2zM8 19H5v-9h3zM6.5 8.25A1.75 1.75 0 118.3 6.5a1.78 1.78 0 01-1.8 1.75zM19 19h-3v-4.74c0-1.42-.6-1.93-1.38-1.93A1.74 1.74 0 0013 14.19a.66.66 0 000 .14V19h-3v-9h2.9v1.3a3.11 3.11 0 012.7-1.4c1.55 0 3.36.86 3.36 3.66z"/></svg>',
+        'x': '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+        'email': '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
+        'blog': '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>'
+    }[platform] || '';
+
+    const copyId = 'copy-' + Date.now();
+
+    let html = `
+        <div class="message-header">
+            <div class="avatar avatar-assistant">M</div>
+            <span class="message-name">MV Copy</span>
+            <span class="copy-badge" style="margin-left: 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.125rem 0.5rem; background: var(--accent-light); color: var(--accent); border-radius: 1rem; font-size: 0.75rem;">
+                ${platformIcon} ${platformLabel}
+            </span>
+            <span class="persona-badge" style="margin-left: 0.25rem; padding: 0.125rem 0.5rem; background: var(--border-light); color: var(--text-secondary); border-radius: 1rem; font-size: 0.75rem;">
+                ${persona || 'Unknown'}'s voice
+            </span>
+        </div>
+        <div class="message-body copy-content" id="${copyId}">
+            <div class="copy-text" style="background: var(--bg-secondary); padding: 1rem; border-radius: 0.5rem; border-left: 3px solid var(--accent); margin-bottom: 1rem; white-space: pre-wrap;">
+${content}
+            </div>
+            <div class="copy-actions" style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-accent btn-sm" onclick="copyToClipboard('${copyId}')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    Copy to clipboard
+                </button>
+            </div>
+        </div>`;
+
+    div.innerHTML = html;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function copyToClipboard(id) {
+    const el = document.getElementById(id);
+    const copyText = el.querySelector('.copy-text');
+    if (copyText) {
+        navigator.clipboard.writeText(copyText.innerText.trim()).then(() => {
+            showToast('Copied to clipboard!', 'success');
+        }).catch(() => {
+            showToast('Failed to copy', 'error');
+        });
+    }
+}
+
 function showTyping() {
     const div = document.createElement('div');
     div.className = 'message';
@@ -2035,7 +2098,7 @@ function showTyping() {
     div.innerHTML = `
         <div class="message-header">
             <div class="avatar avatar-assistant">M</div>
-            <span class="message-name">MV Videos</span>
+            <span class="message-name">MV Internal</span>
         </div>
         <div class="message-body">
             <div class="typing"><span></span><span></span><span></span></div>
@@ -2071,7 +2134,8 @@ async function sendMessage() {
                 message: msg,
                 history: history,
                 model: model,
-                conversation_id: currentConversationId
+                conversation_id: currentConversationId,
+                previous_clips: clips || []  // Send previously used clips to avoid duplicates
             })
         });
         const data = await res.json();
@@ -2086,7 +2150,13 @@ async function sendMessage() {
             lastModel = model;
 
             let text = data.response.replace(/```json[\s\S]*?```/g, '');
-            addMsg(text, false, data.clips || [], data.context_segments || 0);
+
+            // Handle copy generation vs video script differently
+            if (data.is_copy) {
+                addCopyMsg(text, data.persona, data.platform);
+            } else {
+                addMsg(text, false, data.clips || [], data.context_segments || 0);
+            }
             history.push({ role: 'assistant', content: data.response });
 
             // Update conversation title in sidebar if it was auto-named
@@ -2624,7 +2694,16 @@ function playScriptClip(clipIdx) {
 }
 
 async function regenerateScriptClip(clipIdx) {
-    if (!clips || !clips[clipIdx]) return;
+    console.log('[DEBUG] regenerateScriptClip called with clipIdx:', clipIdx);
+    console.log('[DEBUG] clips array:', clips);
+    console.log('[DEBUG] clips[clipIdx]:', clips ? clips[clipIdx] : 'clips is undefined');
+    console.log('[DEBUG] currentConversationId:', currentConversationId);
+
+    if (!clips || !clips[clipIdx]) {
+        console.error('[DEBUG] No clip found at index', clipIdx, '- clips array length:', clips?.length);
+        alert('Clip data not available. This may happen if you are trying to regenerate a clip from an older message. Try regenerating the entire response first.');
+        return;
+    }
 
     const clip = clips[clipIdx];
     const feedback = prompt('What kind of alternative are you looking for? (or leave blank for any alternative)');

@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}{{ persona.name }} - MV Internal{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-header-left">
+        <a href="/personas" style="color: var(--text-secondary); text-decoration: none; margin-right: 0.5rem;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+        </a>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            {% if persona.avatar_url %}
+            <img src="{{ persona.avatar_url }}" alt="{{ persona.name }}" style="width: 56px; height: 56px; border-radius: 50%; object-fit: cover;">
+            {% else %}
+            <div style="width: 56px; height: 56px; border-radius: 50%; background: var(--accent-light); display: flex; align-items: center; justify-content: center; color: var(--accent); font-weight: 600; font-size: 1.5rem;">
+                {{ persona.name[0] }}
+            </div>
+            {% endif %}
+            <div>
+                <h1>{{ persona.name }}</h1>
+                {% if persona.tone %}
+                <span class="page-subtitle">{{ persona.tone }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <button class="btn btn-secondary" onclick="showEditModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+        Edit
+    </button>
+</div>
+
+<!-- Voice Profile Card -->
+<div class="card" style="margin-bottom: 1.5rem;">
+    <h3 style="margin-bottom: 1rem;">Voice Profile</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+        <div>
+            <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Description</label>
+            <p style="margin-top: 0.25rem;">{{ persona.description or 'Not set' }}</p>
+        </div>
+        <div>
+            <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Tone</label>
+            <p style="margin-top: 0.25rem;">{{ persona.tone or 'Not set' }}</p>
+        </div>
+        <div>
+            <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Style Notes</label>
+            <p style="margin-top: 0.25rem;">{{ persona.style_notes or 'Not set' }}</p>
+        </div>
+        <div>
+            <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Linked Videos Speaker</label>
+            <p style="margin-top: 0.25rem;">{{ persona.speaker_name_in_videos or 'Not linked' }}</p>
+        </div>
+    </div>
+</div>
+
+<!-- Content Tabs -->
+<div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+    <button class="btn btn-secondary tab-btn active" data-tab="videos" onclick="showTab('videos')">
+        Videos ({{ videos|length }})
+    </button>
+    <button class="btn btn-secondary tab-btn" data-tab="documents" onclick="showTab('documents')">
+        Documents ({{ documents|length }})
+    </button>
+    <button class="btn btn-secondary tab-btn" data-tab="social" onclick="showTab('social')">
+        Social Posts ({{ social_posts|length }})
+    </button>
+</div>
+
+<!-- Videos Tab -->
+<div id="tab-videos" class="tab-content">
+    {% if videos %}
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Event</th>
+                    <th>Date</th>
+                    <th>Duration</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for video in videos %}
+                <tr>
+                    <td><a href="/videos/{{ video.id }}">{{ video.filename }}</a></td>
+                    <td>{{ video.event_name or '-' }}</td>
+                    <td>{{ video.event_date or '-' }}</td>
+                    <td>{{ video.duration_seconds|duration if video.duration_seconds else '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding: 2rem;">
+        <p>No videos linked to this persona yet.</p>
+        <small style="color: var(--text-muted);">Set the "Linked Videos Speaker" field to match the speaker name in your videos.</small>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Documents Tab -->
+<div id="tab-documents" class="tab-content" style="display: none;">
+    <div style="margin-bottom: 1rem;">
+        <button class="btn btn-accent" onclick="showUploadModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Upload Document
+        </button>
+    </div>
+    {% if documents %}
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Type</th>
+                    <th>Words</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in documents %}
+                <tr>
+                    <td>{{ doc.title }}</td>
+                    <td><span class="badge badge-neutral">{{ doc.doc_type }}</span></td>
+                    <td>{{ doc.word_count or '-' }}</td>
+                    <td>{{ doc.document_date or doc.created_at|timestamp }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding: 2rem;">
+        <p>No documents uploaded yet.</p>
+        <small style="color: var(--text-muted);">Upload articles, call transcripts, or notes to help the AI learn this person's voice.</small>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Social Posts Tab -->
+<div id="tab-social" class="tab-content" style="display: none;">
+    <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+        <button class="btn btn-secondary" onclick="showImportCSVModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            Import CSV
+        </button>
+        <button class="btn btn-secondary" onclick="showAddPostModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Post
+        </button>
+    </div>
+    {% if social_posts %}
+    <div style="display: flex; flex-direction: column; gap: 1rem;">
+        {% for post in social_posts %}
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span class="badge {% if post.platform == 'linkedin' %}badge-info{% elif post.platform == 'x' %}badge-neutral{% else %}badge-purple{% endif %}">
+                    {{ post.platform }}
+                </span>
+                <span style="color: var(--text-muted); font-size: 0.8125rem;">
+                    {{ post.posted_at|timestamp if post.posted_at else '' }}
+                </span>
+            </div>
+            <p style="white-space: pre-wrap;">{{ post.content[:500] }}{% if post.content|length > 500 %}...{% endif %}</p>
+            {% if post.likes or post.comments or post.shares %}
+            <div style="display: flex; gap: 1rem; margin-top: 0.75rem; color: var(--text-muted); font-size: 0.8125rem;">
+                {% if post.likes %}<span>{{ post.likes }} likes</span>{% endif %}
+                {% if post.comments %}<span>{{ post.comments }} comments</span>{% endif %}
+                {% if post.shares %}<span>{{ post.shares }} shares</span>{% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding: 2rem;">
+        <p>No social posts imported yet.</p>
+        <small style="color: var(--text-muted);">Import posts from LinkedIn or X to help the AI learn this person's social media voice.</small>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.tab-btn { background: transparent; border: none; }
+.tab-btn.active { background: var(--border-light); }
+</style>
+
+<script>
+function showTab(tabName) {
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+    // Show selected tab
+    document.getElementById('tab-' + tabName).style.display = 'block';
+    document.querySelector('[data-tab="' + tabName + '"]').classList.add('active');
+}
+
+function showEditModal() {
+    showToast('Edit modal coming soon', 'info');
+}
+
+function showUploadModal() {
+    showToast('Document upload coming soon', 'info');
+}
+
+function showImportCSVModal() {
+    showToast('CSV import coming soon', 'info');
+}
+
+function showAddPostModal() {
+    showToast('Add post modal coming soon', 'info');
+}
+</script>
+{% endblock %}

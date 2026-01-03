@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 
-{% block title %}MV Videos{% endblock %}
+{% block title %}MV Internal{% endblock %}
 
 {% block content %}
-<h1>Video Library</h1>
+<h1>MV Internal</h1>
 
 <div class="stats">
     <div class="stat-card">
@@ -15,8 +15,12 @@
         <div class="stat-label">Transcripts</div>
     </div>
     <div class="stat-card">
-        <div class="stat-number">{{ storyline_count }}</div>
-        <div class="stat-label">Storylines</div>
+        <div class="stat-number">{{ persona_count }}</div>
+        <div class="stat-label">Personas</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ document_count }}</div>
+        <div class="stat-label">Documents</div>
     </div>
 </div>
 
@@ -24,19 +28,19 @@
 <div class="grid">
     <a href="/chat" class="card" style="text-decoration: none;">
         <div class="card-title">Chat</div>
-        <div class="card-meta">Generate scripts with AI</div>
+        <div class="card-meta">Generate scripts & copy with AI</div>
+    </a>
+    <a href="/personas" class="card" style="text-decoration: none;">
+        <div class="card-title">Personas</div>
+        <div class="card-meta">Manage voice profiles</div>
     </a>
     <a href="/transcripts/search" class="card" style="text-decoration: none;">
         <div class="card-title">Search</div>
         <div class="card-meta">Find quotes and topics</div>
     </a>
-    <a href="/storylines" class="card" style="text-decoration: none;">
-        <div class="card-title">Storylines</div>
-        <div class="card-meta">Browse AI suggestions</div>
-    </a>
-    <a href="/edit-scripts" class="card" style="text-decoration: none;">
-        <div class="card-title">Scripts</div>
-        <div class="card-meta">Export for editing</div>
+    <a href="/videos" class="card" style="text-decoration: none;">
+        <div class="card-title">Videos</div>
+        <div class="card-meta">Browse video library</div>
     </a>
 </div>
 {% endblock %}

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}MV Videos{% endblock %}</title>
+    <title>{% block title %}MV Internal{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -625,13 +625,14 @@
                         <polygon points="5 3 19 12 5 21 5 3"/>
                     </svg>
                 </div>
-                MV Videos
+                MV Internal
             </a>
             <div class="links">
                 <a href="/chat" {% if request.path == '/chat' %}class="active"{% endif %}>Chat</a>
                 <a href="/videos" {% if request.path == '/videos' %}class="active"{% endif %}>Videos</a>
                 <a href="/transcripts" {% if request.path.startswith('/transcripts') %}class="active"{% endif %}>Transcripts</a>
-                <a href="/storylines" {% if request.path.startswith('/storylines') %}class="active"{% endif %}>Storylines</a>
+                <a href="/personas" {% if request.path.startswith('/personas') %}class="active"{% endif %}>Personas</a>
+                <a href="/ai-logs" {% if request.path == '/ai-logs' %}class="active"{% endif %}>AI Logs</a>
             </div>
         </div>
     </nav>

@@ -16,9 +16,13 @@ import anthropic
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import boto3
-from scripts.db import DatabaseSession, Video, Transcript, TranscriptSegment, CompiledVideo, ScriptFeedback, Conversation, ChatMessage, User
+from scripts.db import DatabaseSession, Video, Transcript, TranscriptSegment, CompiledVideo, ScriptFeedback, Conversation, ChatMessage, User, AILog, Persona, Document, SocialPost, AudioRecording, AudioSegment
+import time
 import hashlib
-from scripts.storylines import get_cached_storylines, generate_storylines, Storyline
+import pyotp
+import qrcode
+import io
+import base64
 from scripts.config_loader import get_config
 
 
@@ -33,7 +37,14 @@ def get_s3_client():
     )
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+
+# Session configuration - persistent sessions that survive browser close
+# Secret key is fixed so sessions persist across server restarts
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'mv-internal-secret-key-2026-change-in-production')
+app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS only
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent XSS
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 604800  # 7 days in seconds
 
 
 def format_duration(seconds):
@@ -60,16 +71,17 @@ app.jinja_env.filters['timestamp'] = format_timestamp
 @app.route('/')
 def index():
     """Dashboard home page."""
-    with DatabaseSession() as session:
-        video_count = session.query(Video).count()
-        transcript_count = session.query(Transcript).filter(Transcript.status == "completed").count()
-
-    storylines = get_cached_storylines() or []
+    with DatabaseSession() as db_session:
+        video_count = db_session.query(Video).count()
+        transcript_count = db_session.query(Transcript).filter(Transcript.status == "completed").count()
+        persona_count = db_session.query(Persona).filter(Persona.is_active == 1).count()
+        document_count = db_session.query(Document).count()
 
     return render_template('index.html',
                          video_count=video_count,
                          transcript_count=transcript_count,
-                         storyline_count=len(storylines))
+                         persona_count=persona_count,
+                         document_count=document_count)
 
 
 @app.route('/videos')
@@ -207,29 +219,6 @@ def search_transcripts():
     return render_template('search.html', query=query, results=results)
 
 
-@app.route('/storylines')
-def storylines():
-    """List all generated storylines."""
-    storyline_list = get_cached_storylines() or []
-    return render_template('storylines.html', storylines=storyline_list)
-
-
-@app.route('/storylines/<int:storyline_id>')
-def storyline_detail(storyline_id):
-    """View a single storyline with clips."""
-    storyline_list = get_cached_storylines() or []
-    storyline = None
-    for s in storyline_list:
-        if s.id == storyline_id:
-            storyline = s
-            break
-
-    if not storyline:
-        return "Storyline not found", 404
-
-    return render_template('storyline_detail.html', storyline=storyline)
-
-
 @app.route('/edit-scripts')
 def edit_scripts():
     """List available edit scripts/clip folders."""
@@ -270,16 +259,6 @@ def edit_script_detail(name):
                          clips=clips)
 
 
-@app.route('/api/storylines/generate', methods=['POST'])
-def api_generate_storylines():
-    """Generate new storylines via API."""
-    try:
-        storylines = generate_storylines(force_refresh=True)
-        return jsonify({'success': True, 'count': len(storylines)})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
 # ============================================================================
 # CHAT INTERFACE FOR SCRIPT GENERATION
 # ============================================================================
@@ -313,6 +292,48 @@ MODEL_MAP = {
     "gpt-4-turbo": "gpt-4-turbo",
     "gpt-3.5-turbo": "gpt-3.5-turbo",
 }
+
+
+def log_ai_call(
+    request_type: str,
+    model: str,
+    prompt: str = None,
+    context_summary: str = None,
+    response: str = None,
+    clips_generated: int = 0,
+    response_json: dict = None,
+    success: bool = True,
+    error_message: str = None,
+    latency_ms: float = None,
+    input_tokens: int = None,
+    output_tokens: int = None,
+    user_id: str = None,
+    conversation_id: str = None
+):
+    """Log an AI API call for quality monitoring."""
+    try:
+        with DatabaseSession() as db_session:
+            log_entry = AILog(
+                request_type=request_type,
+                model=model,
+                prompt=prompt[:10000] if prompt else None,  # Truncate very long prompts
+                context_summary=context_summary[:5000] if context_summary else None,
+                response=response[:50000] if response else None,  # Keep full response for quality review
+                clips_generated=clips_generated,
+                response_json=response_json,
+                success=1 if success else 0,
+                error_message=error_message,
+                latency_ms=latency_ms,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                user_id=UUID(user_id) if user_id else None,
+                conversation_id=UUID(conversation_id) if conversation_id else None
+            )
+            db_session.add(log_entry)
+            db_session.commit()
+            print(f"[AI_LOG] {request_type} | model={model} | success={success} | latency={latency_ms:.0f}ms | clips={clips_generated}")
+    except Exception as e:
+        print(f"[AI_LOG ERROR] Failed to log AI call: {e}")
 
 
 def search_transcripts_for_context(query: str, limit: int = 1000):
@@ -514,25 +535,144 @@ def search_transcripts_for_context(query: str, limit: int = 1000):
     return unique_results
 
 
+def search_audio_for_context(query: str, limit: int = 100):
+    """Search audio recordings for relevant segments based on query keywords.
+
+    Returns audio segments with S3 URLs for playback, similar to video transcript search.
+    """
+    stop_words = {'want', 'need', 'like', 'make', 'create', 'find', 'give', 'about', 'from', 'with', 'that', 'this', 'have', 'will', 'would', 'could', 'should', 'audio', 'clip', 'clips', 'second', 'minute', 'the', 'and', 'for', 'how', 'know', 'talking', 'talk', 'good', 'great', 'thing', 'things', 'way', 'just', 'really', 'very', 'also', 'can', 'get', 'got', 'say', 'said', 'think', 'going', 'look', 'see', 'time', 'year', 'years', 'people', 'work', 'working'}
+    keywords = [w for w in re.findall(r'\b\w{3,}\b', query.lower()) if w not in stop_words]
+    keywords = list(dict.fromkeys(keywords))
+
+    results = []
+    results_by_id = {}
+
+    with DatabaseSession() as db_session:
+        # Get audio recording metadata
+        recordings = db_session.query(AudioRecording).filter(
+            AudioRecording.status == 'transcribed'
+        ).all()
+        recording_map = {str(r.id): {
+            'title': r.title,
+            'filename': r.filename,
+            's3_key': r.s3_key,
+            's3_bucket': r.s3_bucket,
+            'speakers': r.speakers or [],
+            'recording_date': r.recording_date,
+            'duration': float(r.duration_seconds) if r.duration_seconds else None
+        } for r in recordings}
+
+        # Search for matching segments
+        for keyword in keywords[:10]:
+            segments = db_session.query(AudioSegment).filter(
+                AudioSegment.text.ilike(f'%{keyword}%')
+            ).limit(50).all()
+
+            for seg in segments:
+                audio_id = str(seg.audio_id)
+                if audio_id not in recording_map:
+                    continue
+
+                audio_info = recording_map[audio_id]
+                recording_date = audio_info.get('recording_date')
+                date_str = recording_date.strftime('%Y-%m-%d') if recording_date else 'Unknown date'
+
+                seg_key = str(seg.id)
+                if seg_key in results_by_id:
+                    results_by_id[seg_key]['score'] += 1
+                    results_by_id[seg_key]['matched_keywords'].add(keyword)
+                else:
+                    # Generate presigned URL for audio clip
+                    s3_key = audio_info.get('s3_key')
+
+                    results_by_id[seg_key] = {
+                        'type': 'audio',
+                        'audio_id': audio_id,
+                        'audio_title': audio_info.get('title', 'Unknown'),
+                        'filename': audio_info.get('filename'),
+                        's3_key': s3_key,
+                        's3_bucket': audio_info.get('s3_bucket', 'mv-brain'),
+                        'speaker': seg.speaker or (audio_info.get('speakers', ['Unknown'])[0] if audio_info.get('speakers') else 'Unknown'),
+                        'recording_date': date_str,
+                        'start': float(seg.start_time),
+                        'end': float(seg.end_time),
+                        'text': seg.text,
+                        'segment_id': seg_key,
+                        'score': 1,
+                        'matched_keywords': {keyword}
+                    }
+
+        # Sort by score
+        results = sorted(results_by_id.values(), key=lambda x: -x['score'])
+
+    # Deduplicate and limit
+    seen = set()
+    unique_results = []
+    for r in results:
+        key = (r['audio_id'], r['start'], r['end'])
+        if key not in seen:
+            seen.add(key)
+            unique_results.append(r)
+            if len(unique_results) >= limit:
+                break
+
+    print(f"[DEBUG] Audio search: {len(unique_results)} results for keywords: {keywords[:5]}")
+    return unique_results
+
+
 def validate_clips_against_database(clips: list) -> list:
     """Validate that clips reference real videos AND that the text actually exists in transcripts."""
     validated = []
 
     with DatabaseSession() as db_session:
+        # Pre-load all video IDs for fuzzy matching
+        all_videos = db_session.query(Video).all()
+        video_id_map = {str(v.id): v for v in all_videos}
+        video_title_map = {v.filename.lower(): v for v in all_videos}
+
         for clip in clips:
             video_id = clip.get('video_id')
+            video_title = clip.get('video_title', '')
             start_time = clip.get('start_time', 0)
             end_time = clip.get('end_time', 0)
             claimed_text = clip.get('text', '')
 
-            # Check video exists
+            video = None
+
+            # 1. Try exact video ID match
             try:
                 video = db_session.query(Video).filter(Video.id == UUID(video_id)).first()
             except:
-                video = None
+                pass
+
+            # 2. If not found, try fuzzy ID matching (1-2 character difference)
+            if not video and video_id:
+                for existing_id, existing_video in video_id_map.items():
+                    # Compare IDs character by character
+                    if len(existing_id) == len(video_id):
+                        diff_count = sum(1 for a, b in zip(existing_id, video_id) if a != b)
+                        if diff_count <= 2:  # Allow up to 2 character differences
+                            video = existing_video
+                            print(f"[FUZZY MATCH] ID {video_id} -> {existing_id} (diff: {diff_count})")
+                            break
+
+            # 3. If still not found, try matching by video title
+            if not video and video_title:
+                title_lower = video_title.lower()
+                # Exact title match
+                if title_lower in video_title_map:
+                    video = video_title_map[title_lower]
+                    print(f"[TITLE MATCH] Found video by exact title: {video_title}")
+                else:
+                    # Partial title match - find videos containing the title
+                    for filename, v in video_title_map.items():
+                        if title_lower in filename or filename in title_lower:
+                            video = v
+                            print(f"[TITLE MATCH] Found video by partial title: {video_title} -> {v.filename}")
+                            break
 
             if not video:
-                # Skip clips with invalid video IDs entirely
+                print(f"[VALIDATION] No video found for ID: {video_id}, title: {video_title}")
                 continue
 
             # Find matching or nearby segments
@@ -664,7 +804,7 @@ def reconstruct_script_with_verified_clips(ai_response: str, verified_clips: lis
     return script
 
 
-def generate_script_with_ai(user_message: str, transcript_context: list, conversation_history: list, model: str = "gpt-4o"):
+def generate_script_with_ai(user_message: str, transcript_context: list, conversation_history: list, model: str = "gpt-4o", exclude_clips: list = None, user_id: str = None, conversation_id: str = None):
     """Generate a script using AI with verified transcript data."""
 
     # Build summary of available content
@@ -684,10 +824,11 @@ def generate_script_with_ai(user_message: str, transcript_context: list, convers
 - Total clips available: {len(transcript_context)}
 """
 
-    # Fetch good examples from database (few-shot learning)
+    # Fetch good AND bad examples from database (few-shot learning)
     examples_text = ""
     try:
         with DatabaseSession() as db_session:
+            # Good examples - learn from these
             good_scripts = db_session.query(ScriptFeedback).filter(
                 ScriptFeedback.rating == 1
             ).order_by(ScriptFeedback.created_at.desc()).limit(2).all()
@@ -695,11 +836,29 @@ def generate_script_with_ai(user_message: str, transcript_context: list, convers
             if good_scripts:
                 examples_text = "\n\nHERE ARE EXAMPLES OF GOOD SCRIPTS (learn from this style):\n"
                 for i, ex in enumerate(good_scripts, 1):
-                    # Extract just the script part, not the JSON
                     script_clean = ex.script.split('```json')[0].strip() if '```json' in ex.script else ex.script
-                    examples_text += f"\n--- EXAMPLE {i} ---\nUser asked: \"{ex.query}\"\nGood response:\n{script_clean[:1500]}...\n"
+                    examples_text += f"\n--- GOOD EXAMPLE {i} ---\nUser asked: \"{ex.query}\"\nGood response:\n{script_clean[:1500]}...\n"
+
+            # Bad examples - AVOID these mistakes
+            bad_scripts = db_session.query(ScriptFeedback).filter(
+                ScriptFeedback.rating == -1
+            ).order_by(ScriptFeedback.created_at.desc()).limit(2).all()
+
+            if bad_scripts:
+                examples_text += "\n\nHERE ARE EXAMPLES OF BAD SCRIPTS (DO NOT make these mistakes):\n"
+                for i, ex in enumerate(bad_scripts, 1):
+                    script_clean = ex.script.split('```json')[0].strip() if '```json' in ex.script else ex.script
+                    examples_text += f"\n--- BAD EXAMPLE {i} (AVOID THIS) ---\nUser asked: \"{ex.query}\"\nBad response (DO NOT DO THIS):\n{script_clean[:1000]}...\n"
     except Exception as e:
         print(f"[DEBUG] Could not fetch examples: {e}")
+
+    # Build exclusion list from previously used clips
+    exclude_text = ""
+    if exclude_clips:
+        exclude_text = "\n\nCLIPS TO EXCLUDE (DO NOT USE THESE - already used in previous scripts):\n"
+        for clip in exclude_clips:
+            exclude_text += f"- video_id: {clip.get('video_id')} | {clip.get('start_time', 0):.1f}s-{clip.get('end_time', 0):.1f}s | \"{clip.get('text', '')[:80]}...\"\n"
+        exclude_text += "\nYou MUST use DIFFERENT clips than the ones listed above.\n"
 
     # Build context from transcripts
     # GPT-4o has 30k token limit, Claude has 200k - adjust accordingly
@@ -743,6 +902,9 @@ IMPORTANT RULES:
 2. Copy video_id and timestamps EXACTLY from the data below
 3. Look for COMPLETE THOUGHTS - prefer quotes that start with capital letters and end with periods
 4. If a segment starts mid-sentence (with "and", "but", lowercase), look for a better starting point nearby
+5. NEVER USE THE SAME CLIP TWICE - each video_id + timestamp combination must be unique in your script. No duplicates!
+6. If user requests a SPECIFIC CLIP as the first clip (e.g., "The first clip should be..."), you MUST use that exact clip first. Search for it in the transcript data and use it verbatim.
+7. Mix clips from DIFFERENT recording sessions/videos when possible - avoid using consecutive clips from the same video unless necessary
 
 CRITICAL - [RECORD] NARRATION STYLE:
 - Write ALL [RECORD] sections in FIRST PERSON as if the speaker (e.g. Dan Goldin) is narrating their own story
@@ -782,6 +944,7 @@ FINDING GOOD CLIPS:
 - If explaining a concept (like "frogs and caterpillars"), find the segments where it's DEFINED, not just mentioned
 - Combine multiple short segments if they form a complete thought
 {examples_text}
+{exclude_text}
 ---
 
 TRANSCRIPT DATA:
@@ -795,6 +958,25 @@ TRANSCRIPT DATA:
         messages.append({"role": msg["role"], "content": msg["content"]})
 
     messages.append({"role": "user", "content": user_message})
+
+    # Log the full prompt for debugging
+    import os
+    log_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, 'ai_prompts.log')
+    with open(log_file, 'a') as f:
+        f.write(f"\n{'='*80}\n")
+        f.write(f"TIMESTAMP: {datetime.utcnow().isoformat()}\n")
+        f.write(f"MODEL: {model}\n")
+        f.write(f"USER MESSAGE: {user_message}\n")
+        f.write(f"EXCLUDE CLIPS: {exclude_clips}\n")
+        f.write(f"\n--- SYSTEM PROMPT (first 3000 chars) ---\n{system_prompt[:3000]}\n")
+        f.write(f"\n--- FULL SYSTEM PROMPT LENGTH: {len(system_prompt)} chars ---\n")
+
+    # Start timing for logging
+    start_time = time.time()
+    input_tokens = None
+    output_tokens = None
 
     try:
         # Determine which provider to use
@@ -812,6 +994,10 @@ TRANSCRIPT DATA:
                 messages=[{"role": m["role"], "content": m["content"]} for m in messages[1:]]  # Skip system message
             )
             assistant_message = response.content[0].text
+            # Extract token usage from Claude response
+            if hasattr(response, 'usage'):
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
         else:
             # Use OpenAI
             client = get_openai_client()
@@ -822,6 +1008,14 @@ TRANSCRIPT DATA:
                 max_tokens=2000,
             )
             assistant_message = response.choices[0].message.content
+            # Extract token usage from OpenAI response
+            if hasattr(response, 'usage'):
+                input_tokens = response.usage.prompt_tokens
+                output_tokens = response.usage.completion_tokens
+
+        # Log the AI response
+        with open(log_file, 'a') as f:
+            f.write(f"\n--- AI RESPONSE ---\n{assistant_message}\n")
 
         # Try to extract JSON clips from response
         clips = []
@@ -833,11 +1027,47 @@ TRANSCRIPT DATA:
             except:
                 pass
 
+        # Log extracted clips
+        with open(log_file, 'a') as f:
+            f.write(f"\n--- EXTRACTED CLIPS ({len(clips)}) ---\n")
+            for i, c in enumerate(clips):
+                f.write(f"  {i+1}. video_id={c.get('video_id')} | {c.get('start_time')}-{c.get('end_time')} | {c.get('text', '')[:60]}...\n")
+
         # Validate clips against database
         if clips:
             validated_clips = validate_clips_against_database(clips)
         else:
             validated_clips = []
+
+        # DEDUPLICATE: Remove clips that overlap with each other (same video, overlapping times)
+        if len(validated_clips) > 1:
+            deduped_clips = []
+            for clip in validated_clips:
+                is_duplicate = False
+                for existing in deduped_clips:
+                    # Same video?
+                    if clip.get('video_id') == existing.get('video_id'):
+                        # Check for time overlap
+                        clip_start = clip.get('start_time', 0)
+                        clip_end = clip.get('end_time', 0)
+                        exist_start = existing.get('start_time', 0)
+                        exist_end = existing.get('end_time', 0)
+                        # Overlap if: clip starts before existing ends AND clip ends after existing starts
+                        if clip_start < exist_end + 5 and clip_end > exist_start - 5:  # 5s tolerance
+                            is_duplicate = True
+                            with open(log_file, 'a') as f:
+                                f.write(f"  DUPLICATE REMOVED: {clip.get('video_id')} {clip_start}-{clip_end} overlaps with {exist_start}-{exist_end}\n")
+                            break
+                if not is_duplicate:
+                    deduped_clips.append(clip)
+            validated_clips = deduped_clips
+
+        # Log validated clips
+        with open(log_file, 'a') as f:
+            f.write(f"\n--- VALIDATED CLIPS ({len(validated_clips)}) ---\n")
+            for i, c in enumerate(validated_clips):
+                f.write(f"  {i+1}. video_id={c.get('video_id')} | {c.get('start_time')}-{c.get('end_time')} | {c.get('text', '')[:60]}...\n")
+            f.write(f"\n{'='*80}\n")
 
         # RECONSTRUCT the script using verified clip texts
         # This ensures the displayed script matches the actual clips
@@ -850,6 +1080,24 @@ TRANSCRIPT DATA:
         else:
             reconstructed = assistant_message
 
+        # Log successful AI call to database
+        latency_ms = (time.time() - start_time) * 1000
+        log_ai_call(
+            request_type="chat",
+            model=actual_model,
+            prompt=user_message,
+            context_summary=f"Speakers: {', '.join(sorted(speakers)[:5])}; Events: {', '.join(sorted(events)[:3])}; {len(transcript_context)} segments",
+            response=assistant_message,
+            clips_generated=len(validated_clips),
+            response_json={"clips": validated_clips} if validated_clips else None,
+            success=True,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            user_id=user_id,
+            conversation_id=conversation_id
+        )
+
         return {
             "message": reconstructed,
             "clips": validated_clips,
@@ -857,10 +1105,287 @@ TRANSCRIPT DATA:
         }
 
     except Exception as e:
+        # Log failed AI call to database
+        latency_ms = (time.time() - start_time) * 1000
+        log_ai_call(
+            request_type="chat",
+            model=MODEL_MAP.get(model, model),
+            prompt=user_message,
+            context_summary=f"{len(transcript_context)} segments",
+            success=False,
+            error_message=str(e),
+            latency_ms=latency_ms,
+            user_id=user_id,
+            conversation_id=conversation_id
+        )
+
         return {
             "message": f"Error generating response: {str(e)}",
             "clips": [],
             "has_script": False,
+            "error": True
+        }
+
+
+# ============================================================================
+# COPY GENERATION (LinkedIn posts, tweets, etc.)
+# ============================================================================
+
+def detect_copy_intent(message: str) -> dict:
+    """Detect if user wants copy generation vs video scripts.
+
+    Returns:
+        dict with keys:
+        - is_copy: bool - True if user wants copy generation
+        - persona_name: str or None - Name of persona mentioned
+        - platform: str or None - Target platform (linkedin, x, email, etc.)
+        - topic: str - The topic/subject matter
+    """
+    message_lower = message.lower()
+
+    # Platform indicators
+    platforms = {
+        'linkedin': ['linkedin', 'linked in', 'linkedin post'],
+        'x': ['tweet', 'x post', 'twitter'],
+        'email': ['email', 'e-mail'],
+        'blog': ['blog post', 'article'],
+        'press': ['press release'],
+    }
+
+    # Copy action indicators
+    copy_actions = ['write', 'draft', 'create', 'generate', 'compose', 'craft']
+    copy_types = ['post', 'tweet', 'email', 'article', 'copy', 'content', 'message', 'release']
+
+    # Check for copy intent
+    is_copy = False
+    detected_platform = None
+
+    # Check for platform mentions
+    for platform, keywords in platforms.items():
+        for kw in keywords:
+            if kw in message_lower:
+                is_copy = True
+                detected_platform = platform
+                break
+        if detected_platform:
+            break
+
+    # Check for copy action + type combinations
+    if not is_copy:
+        for action in copy_actions:
+            for ctype in copy_types:
+                if action in message_lower and ctype in message_lower:
+                    is_copy = True
+                    break
+            if is_copy:
+                break
+
+    # Check for persona mention
+    persona_name = None
+    with DatabaseSession() as db_session:
+        personas = db_session.query(Persona).filter(Persona.is_active == 1).all()
+        for p in personas:
+            if p.name.lower() in message_lower:
+                persona_name = p.name
+                break
+            # Also check first name
+            first_name = p.name.split()[0].lower()
+            if len(first_name) > 2 and first_name in message_lower:
+                persona_name = p.name
+                break
+
+    # If persona mentioned with "voice", "style", "as", it's likely copy
+    if persona_name:
+        voice_indicators = ["voice", "style", "as", "for", "like"]
+        for ind in voice_indicators:
+            if ind in message_lower:
+                is_copy = True
+                break
+
+    return {
+        'is_copy': is_copy,
+        'persona_name': persona_name,
+        'platform': detected_platform,
+        'topic': message  # Will be refined by the AI
+    }
+
+
+def generate_copy_with_ai(
+    user_message: str,
+    persona_name: str,
+    platform: str,
+    transcript_context: list,
+    conversation_history: list,
+    model: str = "claude-sonnet",
+    user_id: str = None,
+    conversation_id: str = None
+) -> dict:
+    """Generate copy in a persona's voice using their content as reference."""
+
+    start_time = time.time()
+
+    # Load persona and extract all needed data within session
+    with DatabaseSession() as db_session:
+        persona = db_session.query(Persona).filter(
+            Persona.name == persona_name,
+            Persona.is_active == 1
+        ).first()
+
+        if not persona:
+            return {
+                "message": f"Persona '{persona_name}' not found.",
+                "copy": None,
+                "is_copy": True
+            }
+
+        # Extract all needed data while session is open
+        p_name = persona.name
+        p_description = persona.description or 'Not specified'
+        p_tone = persona.tone or 'Not specified'
+        p_style_notes = persona.style_notes or 'Not specified'
+        p_topics = ', '.join(persona.topics) if persona.topics else 'Not specified'
+        p_vocabulary = ', '.join(persona.vocabulary) if persona.vocabulary else 'Not specified'
+        persona_id = persona.id
+
+        # Load sample social posts if available
+        sample_posts = db_session.query(SocialPost).filter(
+            SocialPost.persona_id == persona_id
+        ).order_by(SocialPost.posted_at.desc()).limit(5).all()
+
+        samples_text = ""
+        if sample_posts:
+            samples_text = "\n\nEXAMPLE POSTS FROM THIS PERSONA (match this style):\n"
+            for post in sample_posts:
+                samples_text += f"\n[{post.platform}]: {post.content[:500]}\n"
+
+    # Build persona voice profile (outside session, using extracted data)
+    voice_profile = f"""PERSONA: {p_name}
+
+DESCRIPTION: {p_description}
+
+TONE: {p_tone}
+
+STYLE NOTES: {p_style_notes}
+
+KEY TOPICS: {p_topics}
+
+VOCABULARY/PHRASES: {p_vocabulary}
+"""
+
+    # Build transcript context for reference material
+    context_text = ""
+    for t in transcript_context[:50]:  # Limit context
+        text = t["text"].strip()
+        if len(text) > 30:
+            context_text += f'"{text}"\n\n'
+
+    # Platform-specific instructions
+    platform_instructions = {
+        'linkedin': """LinkedIn Post Guidelines:
+- Professional but personable tone
+- Can be 1-3 paragraphs or use bullet points
+- Often starts with a hook or personal insight
+- May include a call to action or question
+- Appropriate hashtags (2-5)""",
+        'x': """X/Twitter Post Guidelines:
+- Must be under 280 characters
+- Punchy and memorable
+- Can use thread format for longer thoughts (indicate with 1/, 2/, etc.)
+- Hashtags sparingly (1-2)""",
+        'email': """Email Guidelines:
+- Clear subject line
+- Professional greeting
+- Concise body with clear purpose
+- Appropriate closing""",
+        'blog': """Blog Post Guidelines:
+- Engaging headline
+- Introduction that hooks the reader
+- Clear structure with subheadings
+- Conclusion with takeaway"""
+    }
+
+    platform_guide = platform_instructions.get(platform, "Write in a professional, engaging tone.")
+
+    system_prompt = f"""You are a ghostwriter creating content in the voice of {p_name}.
+
+{voice_profile}
+{samples_text}
+
+{platform_guide}
+
+REFERENCE MATERIAL (use these as source material/inspiration):
+{context_text[:15000]}
+
+IMPORTANT:
+1. Write EXACTLY as {p_name} would write - use first person ("I", "my", "we")
+2. Match their tone, vocabulary, and style precisely
+3. Draw on the reference material for facts and insights, but rephrase in their voice
+4. Make it authentic - this should sound like {p_name} actually wrote it
+5. Do NOT use generic corporate speak - be specific and personal
+"""
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Add conversation history
+    for msg in conversation_history[-6:]:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+
+    messages.append({"role": "user", "content": user_message})
+
+    try:
+        # Use Claude for copy generation (better at voice matching)
+        client = get_anthropic_client()
+        model_id = MODEL_MAP.get(model, "claude-sonnet-4-20250514")
+
+        response = client.messages.create(
+            model=model_id,
+            max_tokens=2000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}]
+        )
+
+        copy_text = response.content[0].text
+        latency_ms = (time.time() - start_time) * 1000
+
+        # Log the AI call
+        log_ai_call(
+            request_type="copy_generation",
+            model=model_id,
+            prompt=user_message,
+            context_summary=f"Persona: {persona_name}, Platform: {platform}",
+            response=copy_text,
+            success=True,
+            latency_ms=latency_ms,
+            user_id=user_id,
+            conversation_id=conversation_id
+        )
+
+        return {
+            "message": copy_text,
+            "copy": copy_text,
+            "is_copy": True,
+            "persona": persona_name,
+            "platform": platform,
+            "clips": []  # No video clips for copy
+        }
+
+    except Exception as e:
+        latency_ms = (time.time() - start_time) * 1000
+        log_ai_call(
+            request_type="copy_generation",
+            model=model,
+            prompt=user_message,
+            context_summary=f"Persona: {persona_name}, Platform: {platform}",
+            success=False,
+            error_message=str(e),
+            latency_ms=latency_ms,
+            user_id=user_id,
+            conversation_id=conversation_id
+        )
+        return {
+            "message": f"Error generating copy: {str(e)}",
+            "copy": None,
+            "is_copy": True,
             "error": True
         }
 
@@ -872,6 +1397,260 @@ def chat():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     return render_template('chat.html')
+
+
+@app.route('/ai-logs')
+def ai_logs():
+    """View AI call logs for quality monitoring."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    return render_template('ai_logs.html')
+
+
+@app.route('/api/ai-logs', methods=['GET'])
+def api_ai_logs():
+    """API endpoint to fetch AI logs with filtering."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    # Get query parameters
+    request_type = request.args.get('request_type')
+    model = request.args.get('model')
+    success = request.args.get('success')
+    limit = min(int(request.args.get('limit', 50)), 200)
+    offset = int(request.args.get('offset', 0))
+
+    with DatabaseSession() as db_session:
+        query = db_session.query(AILog).order_by(AILog.created_at.desc())
+
+        # Apply filters
+        if request_type:
+            query = query.filter(AILog.request_type == request_type)
+        if model:
+            query = query.filter(AILog.model.ilike(f'%{model}%'))
+        if success is not None and success != '':
+            query = query.filter(AILog.success == int(success))
+
+        # Get total count for pagination
+        total = query.count()
+
+        # Apply pagination
+        logs = query.offset(offset).limit(limit).all()
+
+        return jsonify({
+            'logs': [{
+                'id': str(log.id),
+                'request_type': log.request_type,
+                'model': log.model,
+                'prompt': log.prompt[:500] + '...' if log.prompt and len(log.prompt) > 500 else log.prompt,
+                'context_summary': log.context_summary,
+                'response': log.response[:1000] + '...' if log.response and len(log.response) > 1000 else log.response,
+                'clips_generated': log.clips_generated,
+                'success': log.success == 1,
+                'error_message': log.error_message,
+                'latency_ms': round(log.latency_ms) if log.latency_ms else None,
+                'input_tokens': log.input_tokens,
+                'output_tokens': log.output_tokens,
+                'user_id': str(log.user_id) if log.user_id else None,
+                'conversation_id': str(log.conversation_id) if log.conversation_id else None,
+                'created_at': log.created_at.isoformat() if log.created_at else None
+            } for log in logs],
+            'total': total,
+            'limit': limit,
+            'offset': offset
+        })
+
+
+@app.route('/api/ai-logs/<log_id>', methods=['GET'])
+def api_ai_log_detail(log_id):
+    """Get full details of a specific AI log entry."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    with DatabaseSession() as db_session:
+        log = db_session.query(AILog).filter(AILog.id == UUID(log_id)).first()
+
+        if not log:
+            return jsonify({'error': 'Log not found'}), 404
+
+        return jsonify({
+            'id': str(log.id),
+            'request_type': log.request_type,
+            'model': log.model,
+            'prompt': log.prompt,
+            'context_summary': log.context_summary,
+            'response': log.response,
+            'clips_generated': log.clips_generated,
+            'response_json': log.response_json,
+            'success': log.success == 1,
+            'error_message': log.error_message,
+            'latency_ms': round(log.latency_ms) if log.latency_ms else None,
+            'input_tokens': log.input_tokens,
+            'output_tokens': log.output_tokens,
+            'user_id': str(log.user_id) if log.user_id else None,
+            'conversation_id': str(log.conversation_id) if log.conversation_id else None,
+            'created_at': log.created_at.isoformat() if log.created_at else None
+        })
+
+
+# ============================================================================
+# PERSONAS MANAGEMENT
+# ============================================================================
+
+@app.route('/personas')
+def personas():
+    """List all personas (voice profiles)."""
+    with DatabaseSession() as db_session:
+        persona_list = db_session.query(Persona).filter(Persona.is_active == 1).order_by(Persona.name).all()
+
+        # Get counts for each persona
+        personas_data = []
+        for p in persona_list:
+            doc_count = db_session.query(Document).filter(Document.persona_id == p.id).count()
+            post_count = db_session.query(SocialPost).filter(SocialPost.persona_id == p.id).count()
+            video_count = db_session.query(Video).filter(Video.speaker == p.speaker_name_in_videos).count() if p.speaker_name_in_videos else 0
+
+            personas_data.append({
+                'id': str(p.id),
+                'name': p.name,
+                'description': p.description,
+                'tone': p.tone,
+                'avatar_url': p.avatar_url,
+                'document_count': doc_count,
+                'social_post_count': post_count,
+                'video_count': video_count,
+                'created_at': p.created_at
+            })
+
+    return render_template('personas.html', personas=personas_data)
+
+
+@app.route('/personas/<persona_id>')
+def persona_detail(persona_id):
+    """View and edit a single persona."""
+    with DatabaseSession() as db_session:
+        persona = db_session.query(Persona).filter(Persona.id == UUID(persona_id)).first()
+        if not persona:
+            return "Persona not found", 404
+
+        # Get related content
+        documents = db_session.query(Document).filter(Document.persona_id == persona.id).order_by(Document.created_at.desc()).limit(20).all()
+        social_posts = db_session.query(SocialPost).filter(SocialPost.persona_id == persona.id).order_by(SocialPost.posted_at.desc()).limit(20).all()
+        videos = db_session.query(Video).filter(Video.speaker == persona.speaker_name_in_videos).order_by(Video.created_at.desc()).limit(20).all() if persona.speaker_name_in_videos else []
+
+        return render_template('persona_detail.html',
+                             persona=persona,
+                             documents=documents,
+                             social_posts=social_posts,
+                             videos=videos)
+
+
+@app.route('/api/personas', methods=['GET'])
+def api_list_personas():
+    """API: List all personas."""
+    with DatabaseSession() as db_session:
+        personas = db_session.query(Persona).filter(Persona.is_active == 1).order_by(Persona.name).all()
+        return jsonify([{
+            'id': str(p.id),
+            'name': p.name,
+            'description': p.description,
+            'tone': p.tone,
+            'speaker_name_in_videos': p.speaker_name_in_videos
+        } for p in personas])
+
+
+@app.route('/api/personas', methods=['POST'])
+def api_create_persona():
+    """API: Create a new persona."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    data = request.json or {}
+    name = data.get('name', '').strip()
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+
+    with DatabaseSession() as db_session:
+        # Check if name already exists
+        existing = db_session.query(Persona).filter(Persona.name == name).first()
+        if existing:
+            return jsonify({'error': 'A persona with this name already exists'}), 400
+
+        persona = Persona(
+            name=name,
+            description=data.get('description', ''),
+            tone=data.get('tone', ''),
+            style_notes=data.get('style_notes', ''),
+            topics=data.get('topics', []),
+            vocabulary=data.get('vocabulary', []),
+            speaker_name_in_videos=data.get('speaker_name_in_videos', ''),
+            avatar_url=data.get('avatar_url', ''),
+            created_by=UUID(session['user_id'])
+        )
+        db_session.add(persona)
+        db_session.commit()
+
+        return jsonify({
+            'success': True,
+            'id': str(persona.id),
+            'name': persona.name
+        })
+
+
+@app.route('/api/personas/<persona_id>', methods=['PUT'])
+def api_update_persona(persona_id):
+    """API: Update a persona."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    data = request.json or {}
+
+    with DatabaseSession() as db_session:
+        persona = db_session.query(Persona).filter(Persona.id == UUID(persona_id)).first()
+        if not persona:
+            return jsonify({'error': 'Persona not found'}), 404
+
+        # Update fields
+        if 'name' in data:
+            persona.name = data['name']
+        if 'description' in data:
+            persona.description = data['description']
+        if 'tone' in data:
+            persona.tone = data['tone']
+        if 'style_notes' in data:
+            persona.style_notes = data['style_notes']
+        if 'topics' in data:
+            persona.topics = data['topics']
+        if 'vocabulary' in data:
+            persona.vocabulary = data['vocabulary']
+        if 'speaker_name_in_videos' in data:
+            persona.speaker_name_in_videos = data['speaker_name_in_videos']
+        if 'avatar_url' in data:
+            persona.avatar_url = data['avatar_url']
+
+        persona.updated_at = datetime.utcnow()
+        db_session.commit()
+
+        return jsonify({'success': True})
+
+
+@app.route('/api/personas/<persona_id>', methods=['DELETE'])
+def api_delete_persona(persona_id):
+    """API: Soft delete a persona."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+
+    with DatabaseSession() as db_session:
+        persona = db_session.query(Persona).filter(Persona.id == UUID(persona_id)).first()
+        if not persona:
+            return jsonify({'error': 'Persona not found'}), 404
+
+        persona.is_active = 0
+        persona.updated_at = datetime.utcnow()
+        db_session.commit()
+
+        return jsonify({'success': True})
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -898,11 +1677,19 @@ def login():
             if not user.is_active:
                 return render_template('login.html', error='Account is disabled')
 
-            # Update last login
+            # Check if 2FA is enabled
+            if user.totp_enabled == 1 and user.totp_secret:
+                # Store pending auth in session
+                session['pending_2fa_user_id'] = str(user.id)
+                session['pending_2fa_email'] = user.email
+                return redirect(url_for('verify_2fa'))
+
+            # No 2FA - complete login
             user.last_login = datetime.utcnow()
             db_session.commit()
 
-            # Set session
+            # Set up persistent session (7 days)
+            session.permanent = True
             session['user_id'] = str(user.id)
             session['user_name'] = user.name
             session['user_email'] = user.email
@@ -910,6 +1697,114 @@ def login():
             return redirect(url_for('chat'))
 
     return render_template('login.html')
+
+
+@app.route('/verify-2fa', methods=['GET', 'POST'])
+def verify_2fa():
+    """2FA verification page."""
+    if 'pending_2fa_user_id' not in session:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        code = request.form.get('code', '').strip()
+
+        with DatabaseSession() as db_session:
+            user = db_session.query(User).filter(
+                User.id == session['pending_2fa_user_id']
+            ).first()
+
+            if not user or not user.totp_secret:
+                session.pop('pending_2fa_user_id', None)
+                session.pop('pending_2fa_email', None)
+                return redirect(url_for('login'))
+
+            # Verify TOTP code
+            totp = pyotp.TOTP(user.totp_secret)
+            if totp.verify(code, valid_window=1):  # Allow 1 window tolerance
+                # 2FA verified - complete login
+                user.last_login = datetime.utcnow()
+                db_session.commit()
+
+                # Set up persistent session (7 days)
+                session.permanent = True
+                session['user_id'] = str(user.id)
+                session['user_name'] = user.name
+                session['user_email'] = user.email
+                session.pop('pending_2fa_user_id', None)
+                session.pop('pending_2fa_email', None)
+
+                return redirect(url_for('chat'))
+            else:
+                return render_template('verify_2fa.html',
+                    email=session.get('pending_2fa_email'),
+                    error='Invalid code. Please try again.')
+
+    return render_template('verify_2fa.html', email=session.get('pending_2fa_email'))
+
+
+@app.route('/setup-2fa', methods=['GET', 'POST'])
+def setup_2fa():
+    """2FA setup page - requires login."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    with DatabaseSession() as db_session:
+        user = db_session.query(User).filter(User.id == session['user_id']).first()
+        if not user:
+            return redirect(url_for('login'))
+
+        if request.method == 'POST':
+            code = request.form.get('code', '').strip()
+            secret = request.form.get('secret', '')
+
+            # Verify the code before enabling
+            totp = pyotp.TOTP(secret)
+            if totp.verify(code, valid_window=1):
+                user.totp_secret = secret
+                user.totp_enabled = 1
+                db_session.commit()
+                return render_template('setup_2fa.html', success=True, user_name=user.name)
+            else:
+                # Regenerate QR for retry
+                provisioning_uri = totp.provisioning_uri(
+                    name=user.email,
+                    issuer_name="MV Internal"
+                )
+                qr_data = generate_qr_base64(provisioning_uri)
+                return render_template('setup_2fa.html',
+                    secret=secret,
+                    qr_code=qr_data,
+                    user_name=user.name,
+                    error='Invalid code. Please try again.')
+
+        # Generate new secret
+        secret = pyotp.random_base32()
+        totp = pyotp.TOTP(secret)
+        provisioning_uri = totp.provisioning_uri(
+            name=user.email,
+            issuer_name="MV Internal"
+        )
+
+        # Generate QR code as base64
+        qr_data = generate_qr_base64(provisioning_uri)
+
+        return render_template('setup_2fa.html',
+            secret=secret,
+            qr_code=qr_data,
+            user_name=user.name,
+            already_enabled=user.totp_enabled == 1)
+
+
+def generate_qr_base64(data):
+    """Generate QR code as base64 data URI."""
+    qr = qrcode.QRCode(version=1, box_size=6, border=2)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    buffer.seek(0)
+    return 'data:image/png;base64,' + base64.b64encode(buffer.read()).decode()
 
 
 @app.route('/logout')
@@ -954,7 +1849,8 @@ def register():
             db_session.add(user)
             db_session.commit()
 
-            # Auto-login
+            # Auto-login with persistent session
+            session.permanent = True
             session['user_id'] = str(user.id)
             session['user_name'] = user.name
             session['user_email'] = user.email
@@ -1344,7 +2240,10 @@ def api_add_clip_comment(conversation_id, clip_index):
 @app.route('/api/clips/<conversation_id>/<int:clip_index>/regenerate', methods=['POST'])
 def api_regenerate_clip(conversation_id, clip_index):
     """Regenerate a specific clip based on feedback."""
+    print(f"[DEBUG] Regenerate clip called: conversation={conversation_id}, clip_index={clip_index}")
+
     if 'user_id' not in session:
+        print("[DEBUG] Regenerate failed: Not logged in")
         return jsonify({'error': 'Not logged in'}), 401
 
     data = request.json or {}
@@ -1353,7 +2252,10 @@ def api_regenerate_clip(conversation_id, clip_index):
     conversation_history = data.get('history', [])
     model = data.get('model', 'claude-sonnet')
 
+    print(f"[DEBUG] Regenerate params: feedback='{feedback}', original_clip={original_clip.get('text', '')[:50] if original_clip else 'MISSING'}, model={model}")
+
     if not original_clip:
+        print("[DEBUG] Regenerate failed: No original clip data")
         return jsonify({'error': 'Original clip data required'}), 400
 
     # Build prompt for regeneration
@@ -1377,13 +2279,23 @@ Output format:
 ```"""
 
     # Search for relevant context
-    context = search_transcripts_for_context(feedback or original_clip.get('text', '')[:100])
+    search_query = feedback or original_clip.get('text', '')[:100]
+    print(f"[DEBUG] Regenerate searching with query: '{search_query[:80]}...'")
+    context = search_transcripts_for_context(search_query)
 
     if not context:
+        print("[DEBUG] Regenerate failed: No context found from search")
         return jsonify({'error': 'No relevant content found'}), 404
 
+    print(f"[DEBUG] Regenerate found {len(context)} context segments, generating with AI...")
+
     # Generate with AI
-    result = generate_script_with_ai(regenerate_prompt, context, conversation_history, model=model)
+    result = generate_script_with_ai(
+        regenerate_prompt, context, conversation_history, model=model,
+        user_id=session.get('user_id'), conversation_id=conversation_id
+    )
+
+    print(f"[DEBUG] Regenerate AI result: clips={len(result.get('clips', []))}, message={result.get('message', '')[:100] if result.get('message') else 'none'}")
 
     if result.get('clips'):
         return jsonify({
@@ -1392,6 +2304,7 @@ Output format:
             'message': result.get('message', '')
         })
     else:
+        print("[DEBUG] Regenerate failed: AI returned no clips")
         return jsonify({
             'success': False,
             'error': 'Could not find alternative clips',
@@ -1478,11 +2391,14 @@ Write ONE alternative narration that:
 Output ONLY the new narration text, nothing else. Do not include quotes or any other formatting."""
 
     # Generate with AI
+    start_time = time.time()
+    actual_model = "claude-sonnet-4-20250514"
+
     try:
         client = get_anthropic_client()
 
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=actual_model,
             max_tokens=500,
             messages=[
                 {"role": "user", "content": regenerate_prompt}
@@ -1493,11 +2409,39 @@ Output ONLY the new narration text, nothing else. Do not include quotes or any o
         # Remove any quotes that might have been added
         new_text = new_text.strip('"\'')
 
+        # Log successful AI call
+        latency_ms = (time.time() - start_time) * 1000
+        log_ai_call(
+            request_type="regenerate_record",
+            model=actual_model,
+            prompt=regenerate_prompt,
+            response=new_text,
+            success=True,
+            latency_ms=latency_ms,
+            input_tokens=response.usage.input_tokens if hasattr(response, 'usage') else None,
+            output_tokens=response.usage.output_tokens if hasattr(response, 'usage') else None,
+            user_id=session.get('user_id'),
+            conversation_id=conversation_id
+        )
+
         return jsonify({
             'success': True,
             'new_text': new_text
         })
     except Exception as e:
+        # Log failed AI call
+        latency_ms = (time.time() - start_time) * 1000
+        log_ai_call(
+            request_type="regenerate_record",
+            model=actual_model,
+            prompt=regenerate_prompt,
+            success=False,
+            error_message=str(e),
+            latency_ms=latency_ms,
+            user_id=session.get('user_id'),
+            conversation_id=conversation_id
+        )
+
         print(f"Error regenerating record: {e}")
         return jsonify({
             'success': False,
@@ -1507,19 +2451,79 @@ Output ONLY the new narration text, nothing else. Do not include quotes or any o
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
-    """Handle chat messages for script generation."""
+    """Handle chat messages for script generation or copy generation."""
     try:
         data = request.json
         user_message = data.get('message', '').strip()
         conversation_history = data.get('history', [])
         conversation_id = data.get('conversation_id')
         model = data.get('model', 'gpt-4o')  # Default to GPT-4o
+        previous_clips = data.get('previous_clips', [])  # Clips from previous scripts to exclude
 
         if not user_message:
             return jsonify({'error': 'No message provided'}), 400
 
-        # Search for relevant transcript context
+        # Detect if user wants copy generation vs video scripts
+        intent = detect_copy_intent(user_message)
+
+        # Search for relevant transcript context (used for both modes)
         context = search_transcripts_for_context(user_message)
+
+        # Also search audio recordings for relevant segments
+        audio_context = search_audio_for_context(user_message, limit=50)
+
+        # COPY GENERATION MODE
+        if intent['is_copy'] and intent['persona_name']:
+            # Use Claude for copy generation (better at voice matching)
+            copy_model = 'claude-sonnet' if not model.startswith('claude') else model
+
+            result = generate_copy_with_ai(
+                user_message=user_message,
+                persona_name=intent['persona_name'],
+                platform=intent['platform'] or 'general',
+                transcript_context=context or [],
+                conversation_history=conversation_history,
+                model=copy_model,
+                user_id=session.get('user_id'),
+                conversation_id=conversation_id
+            )
+
+            # Save messages to conversation
+            if conversation_id and 'user_id' in session:
+                with DatabaseSession() as db_session:
+                    user_msg = ChatMessage(
+                        conversation_id=UUID(conversation_id),
+                        role='user',
+                        content=user_message
+                    )
+                    db_session.add(user_msg)
+
+                    assistant_msg = ChatMessage(
+                        conversation_id=UUID(conversation_id),
+                        role='assistant',
+                        content=result['message'],
+                        model=copy_model
+                    )
+                    db_session.add(assistant_msg)
+
+                    conv = db_session.query(Conversation).filter(Conversation.id == UUID(conversation_id)).first()
+                    if conv:
+                        conv.updated_at = datetime.utcnow()
+                    db_session.commit()
+
+            return jsonify({
+                'response': result['message'],
+                'clips': [],
+                'has_script': False,
+                'is_copy': True,
+                'persona': intent['persona_name'],
+                'platform': intent['platform'],
+                'context_segments': len(context) if context else 0,
+                'model': copy_model,
+                'conversation_id': conversation_id
+            })
+
+        # VIDEO SCRIPT MODE (default)
 
         if not context:
             response_text = "I couldn't find any matching content in the video library. Try different keywords or check the Transcripts page to see what's available."
@@ -1560,8 +2564,11 @@ def api_chat():
                 'conversation_id': conversation_id
             })
 
-        # Generate response with AI
-        result = generate_script_with_ai(user_message, context, conversation_history, model=model)
+        # Generate response with AI (exclude previously used clips)
+        result = generate_script_with_ai(
+            user_message, context, conversation_history, model=model, exclude_clips=previous_clips,
+            user_id=session.get('user_id'), conversation_id=conversation_id
+        )
 
         # Save messages to conversation
         if conversation_id and 'user_id' in session:
@@ -1597,8 +2604,10 @@ def api_chat():
         return jsonify({
             'response': result['message'],
             'clips': result.get('clips', []),
+            'audio_clips': audio_context[:20] if audio_context else [],  # Include relevant audio segments
             'has_script': result.get('has_script', False),
             'context_segments': len(context),
+            'audio_segments': len(audio_context) if audio_context else 0,
             'model': model,
             'conversation_id': conversation_id
         })
@@ -1687,7 +2696,7 @@ def api_video_preview(video_id):
 
             # Generate presigned URL (valid for 1 hour)
             config = get_config()
-            bucket = config.settings.get("aws", {}).get("s3_bucket", "per-aspera-brain")
+            bucket = config.s3_bucket
 
             s3_client = get_s3_client()
             presigned_url = s3_client.generate_presigned_url(
@@ -1701,6 +2710,72 @@ def api_video_preview(video_id):
                 'video_id': str(video.id),
                 'filename': video.filename,
                 'duration': video.duration_seconds
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/audio-preview/<audio_id>')
+def api_audio_preview(audio_id):
+    """Get presigned S3 URL for audio preview."""
+    try:
+        with DatabaseSession() as db_session:
+            audio = db_session.query(AudioRecording).filter(AudioRecording.id == UUID(audio_id)).first()
+            if not audio:
+                return jsonify({'error': 'Audio not found'}), 404
+
+            if not audio.s3_key:
+                return jsonify({'error': 'Audio not in S3'}), 404
+
+            # Generate presigned URL (valid for 1 hour)
+            s3_client = get_s3_client()
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': audio.s3_bucket, 'Key': audio.s3_key},
+                ExpiresIn=3600  # 1 hour
+            )
+
+            return jsonify({
+                'url': presigned_url,
+                'audio_id': str(audio.id),
+                'title': audio.title,
+                'filename': audio.filename,
+                'duration': float(audio.duration_seconds) if audio.duration_seconds else None
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/audio-clip/<audio_id>')
+def api_audio_clip(audio_id):
+    """Get audio clip info with presigned URL and time range for playback."""
+    try:
+        start_time = request.args.get('start', type=float, default=0)
+        end_time = request.args.get('end', type=float, default=None)
+
+        with DatabaseSession() as db_session:
+            audio = db_session.query(AudioRecording).filter(AudioRecording.id == UUID(audio_id)).first()
+            if not audio:
+                return jsonify({'error': 'Audio not found'}), 404
+
+            if not audio.s3_key:
+                return jsonify({'error': 'Audio not in S3'}), 404
+
+            # Generate presigned URL
+            s3_client = get_s3_client()
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': audio.s3_bucket, 'Key': audio.s3_key},
+                ExpiresIn=3600
+            )
+
+            return jsonify({
+                'url': presigned_url,
+                'audio_id': str(audio.id),
+                'title': audio.title,
+                'start_time': start_time,
+                'end_time': end_time or (float(audio.duration_seconds) if audio.duration_seconds else None),
+                'duration': float(audio.duration_seconds) if audio.duration_seconds else None
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1815,7 +2890,7 @@ def api_video_thumbnail(video_id):
                 return '', 404
 
             config = get_config()
-            bucket = config.settings.get("aws", {}).get("s3_bucket", "per-aspera-brain")
+            bucket = config.s3_bucket
             s3_client = get_s3_client()
 
             # If we have a pre-generated thumbnail, return presigned URL redirect
@@ -1851,7 +2926,7 @@ def api_clip_preview(video_id):
                 return jsonify({'error': 'Video not in S3'}), 404
 
             config = get_config()
-            bucket = config.settings.get("aws", {}).get("s3_bucket", "per-aspera-brain")
+            bucket = config.s3_bucket
             s3_client = get_s3_client()
 
             # Generate presigned URL for streaming - browser will handle seeking
@@ -1894,7 +2969,7 @@ def api_clip_download(video_id):
                 return jsonify({'error': 'Video not in S3'}), 404
 
             config = get_config()
-            bucket = config.settings.get("aws", {}).get("s3_bucket", "per-aspera-brain")
+            bucket = config.s3_bucket
             s3_client = get_s3_client()
 
             # Use home directory for cache (more space than /tmp)
@@ -1999,7 +3074,7 @@ def api_video_download(video_id):
                 return jsonify({'error': 'Video not in S3'}), 404
 
             config = get_config()
-            bucket = config.settings.get("aws", {}).get("s3_bucket", "per-aspera-brain")
+            bucket = config.s3_bucket
             s3_client = get_s3_client()
 
             # Generate presigned URL for direct download
@@ -2063,14 +3138,32 @@ def api_update_transcript_segment():
             if not segments:
                 return jsonify({'error': 'No matching segments found'}), 404
 
-            # Update the first segment with the new text
-            # (In a more sophisticated system, you might want to handle multiple segments)
-            segments[0].text = new_text.strip()
+            # If multiple segments match, merge them into one with the new text
+            if len(segments) > 1:
+                # First segment gets the new text and expands to cover all time
+                segments[0].text = new_text.strip()
+                segments[0].end_time = segments[-1].end_time
+
+                # Delete the other segments
+                for seg in segments[1:]:
+                    db_session.delete(seg)
+            else:
+                # Single segment - just update the text
+                segments[0].text = new_text.strip()
+
+            # Rebuild full_text from all segments
+            all_segments = db_session.query(TranscriptSegment).filter(
+                TranscriptSegment.transcript_id == transcript.id
+            ).order_by(TranscriptSegment.start_time).all()
+
+            transcript.full_text = ' '.join(seg.text for seg in all_segments if seg.text)
+            transcript.word_count = len(transcript.full_text.split())
+
             db_session.commit()
 
             return jsonify({
                 'success': True,
-                'message': f'Updated {len(segments)} segment(s)',
+                'message': f'Updated segment and rebuilt transcript',
                 'segment_id': str(segments[0].id)
             })
 

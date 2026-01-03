@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Personas - MV Internal{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-header-left">
+        <h1>Personas</h1>
+        <span class="page-subtitle">{{ personas|length }} voice profiles</span>
+    </div>
+    <button class="btn btn-accent" onclick="showCreateModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        New Persona
+    </button>
+</div>
+
+{% if personas %}
+<div class="grid">
+    {% for persona in personas %}
+    <a href="/personas/{{ persona.id }}" class="card" style="text-decoration: none;">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;">
+            {% if persona.avatar_url %}
+            <img src="{{ persona.avatar_url }}" alt="{{ persona.name }}" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover;">
+            {% else %}
+            <div style="width: 48px; height: 48px; border-radius: 50%; background: var(--accent-light); display: flex; align-items: center; justify-content: center; color: var(--accent); font-weight: 600; font-size: 1.25rem;">
+                {{ persona.name[0] }}
+            </div>
+            {% endif %}
+            <div>
+                <div class="card-title">{{ persona.name }}</div>
+                {% if persona.tone %}
+                <div class="card-meta">{{ persona.tone[:50] }}{% if persona.tone|length > 50 %}...{% endif %}</div>
+                {% endif %}
+            </div>
+        </div>
+        {% if persona.description %}
+        <p style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 0.75rem;">
+            {{ persona.description[:100] }}{% if persona.description|length > 100 %}...{% endif %}
+        </p>
+        {% endif %}
+        <div style="display: flex; gap: 1rem; font-size: 0.8125rem; color: var(--text-muted);">
+            <span>{{ persona.video_count }} videos</span>
+            <span>{{ persona.document_count }} docs</span>
+            <span>{{ persona.social_post_count }} posts</span>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+    </svg>
+    <h2>No personas yet</h2>
+    <p>Create your first persona to start generating copy in their voice.</p>
+    <button class="btn btn-accent" onclick="showCreateModal()" style="margin-top: 1rem;">Create Persona</button>
+</div>
+{% endif %}
+
+<!-- Create Persona Modal -->
+<div class="modal-backdrop" id="createModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Create Persona</h3>
+            <button class="modal-close" onclick="hideCreateModal()">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <form id="createForm" onsubmit="createPersona(event)">
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.25rem; font-weight: 500;">Name *</label>
+                    <input type="text" name="name" class="input" required placeholder="e.g., Dan Goldin">
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.25rem; font-weight: 500;">Description</label>
+                    <textarea name="description" class="input" rows="2" placeholder="Who is this person? Brief background..."></textarea>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.25rem; font-weight: 500;">Tone</label>
+                    <input type="text" name="tone" class="input" placeholder="e.g., authoritative but approachable, technical and precise">
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.25rem; font-weight: 500;">Style Notes</label>
+                    <textarea name="style_notes" class="input" rows="3" placeholder="Writing style preferences, typical sentence structures, words they use..."></textarea>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.25rem; font-weight: 500;">Link to Videos (Speaker Name)</label>
+                    <input type="text" name="speaker_name_in_videos" class="input" placeholder="Speaker name as it appears in video metadata">
+                    <small style="color: var(--text-muted);">This links the persona to existing videos with this speaker.</small>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideCreateModal()">Cancel</button>
+            <button class="btn btn-accent" onclick="document.getElementById('createForm').requestSubmit()">Create Persona</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function showCreateModal() {
+    document.getElementById('createModal').classList.add('show');
+}
+
+function hideCreateModal() {
+    document.getElementById('createModal').classList.remove('show');
+    document.getElementById('createForm').reset();
+}
+
+async function createPersona(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    const data = {
+        name: formData.get('name'),
+        description: formData.get('description'),
+        tone: formData.get('tone'),
+        style_notes: formData.get('style_notes'),
+        speaker_name_in_videos: formData.get('speaker_name_in_videos')
+    };
+
+    try {
+        const response = await fetch('/api/personas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('Persona created successfully', 'success');
+            window.location.href = '/personas/' + result.id;
+        } else {
+            showToast(result.error || 'Failed to create persona', 'error');
+        }
+    } catch (error) {
+        showToast('Error creating persona', 'error');
+    }
+}
+
+// Close modal on backdrop click
+document.getElementById('createModal').addEventListener('click', function(e) {
+    if (e.target === this) hideCreateModal();
+});
+</script>
+{% endblock %}
