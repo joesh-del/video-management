@@ -1699,6 +1699,7 @@ def login():
 
             # Check password
             password_hash = hashlib.sha256(password.encode()).hexdigest()
+            print(f"DEBUG LOGIN: email={email}, pwd_len={len(password)}, computed={password_hash[:16]}..., stored={user.password_hash[:16]}..., match={user.password_hash == password_hash}")
             if user.password_hash != password_hash:
                 return render_template('login.html', error='Invalid email or password')
 
