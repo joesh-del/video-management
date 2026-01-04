@@ -317,46 +317,6 @@ def search_transcripts():
     return render_template('search.html', query=query, results=results)
 
 
-@app.route('/edit-scripts')
-def edit_scripts():
-    """List available edit scripts/clip folders."""
-    clips_dir = Path('local_clips')
-    scripts = []
-
-    if clips_dir.exists():
-        for folder in clips_dir.iterdir():
-            if folder.is_dir():
-                script_file = folder / 'EDIT_SCRIPT.txt'
-                clip_count = len(list(folder.glob('*.mp4')))
-                scripts.append({
-                    'name': folder.name,
-                    'has_script': script_file.exists(),
-                    'clip_count': clip_count,
-                })
-
-    return render_template('edit_scripts.html', scripts=scripts)
-
-
-@app.route('/edit-scripts/<name>')
-def edit_script_detail(name):
-    """View an edit script."""
-    script_path = Path('local_clips') / name / 'EDIT_SCRIPT.txt'
-
-    if not script_path.exists():
-        return "Edit script not found", 404
-
-    with open(script_path, 'r') as f:
-        content = f.read()
-
-    clips_dir = Path('local_clips') / name
-    clips = sorted([f.name for f in clips_dir.glob('*.mp4')])
-
-    return render_template('edit_script_detail.html',
-                         name=name,
-                         content=content,
-                         clips=clips)
-
-
 # ============================================================================
 # CHAT INTERFACE FOR SCRIPT GENERATION
 # ============================================================================
